@@ -4,14 +4,14 @@ import '../theme/app_theme.dart';
 
 class GdprConsentDialog extends StatefulWidget {
   final AppColorScheme colors;
-  final VoidCallback onAcceptAll;
+  final void Function(bool analytics, bool ads) onAccept;
   final VoidCallback onAcceptEssential;
   final VoidCallback onShowPrivacyPolicy;
 
   const GdprConsentDialog({
     super.key,
     required this.colors,
-    required this.onAcceptAll,
+    required this.onAccept,
     required this.onAcceptEssential,
     required this.onShowPrivacyPolicy,
   });
@@ -177,7 +177,7 @@ class _GdprConsentDialogState extends State<GdprConsentDialog> {
                       child: GestureDetector(
                         onTap: () {
                           HapticFeedback.mediumImpact();
-                          widget.onAcceptAll();
+                          widget.onAccept(_analyticsConsent, _adsConsent);
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 14),
@@ -188,8 +188,8 @@ class _GdprConsentDialogState extends State<GdprConsentDialog> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           alignment: Alignment.center,
-                          child: const Text(
-                            'Accept All',
+                          child: Text(
+                            _analyticsConsent && _adsConsent ? 'Accept All' : 'Save Choices',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,

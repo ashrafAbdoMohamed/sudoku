@@ -29,10 +29,10 @@ class LegalModal extends StatelessWidget {
       ? _privacyPolicyContent
       : _termsOfServiceContent;
 
-  // TODO: Replace with your actual hosted URL
+  // Hosted from legal/ via Firebase Hosting
   String get _webUrl => documentType == LegalDocumentType.privacyPolicy
-      ? 'https://yourapp.com/privacy-policy'
-      : 'https://yourapp.com/terms-of-service';
+      ? 'https://sudoku-96650.web.app/privacy-policy'
+      : 'https://sudoku-96650.web.app/terms-of-service';
 
   @override
   Widget build(BuildContext context) {
@@ -288,7 +288,7 @@ We may update this privacy policy from time to time. We will notify you of any c
 ## Contact Us
 
 If you have questions about this privacy policy, please contact us at:
-support@yourapp.com
+rocketgamestation.dev@gmail.com
 ''';
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -356,6 +356,6 @@ These Terms shall be governed by and construed in accordance with the laws of yo
 ## Contact Us
 
 For questions about these Terms, please contact us at:
-support@yourapp.com
+rocketgamestation.dev@gmail.com
 ''';
 }

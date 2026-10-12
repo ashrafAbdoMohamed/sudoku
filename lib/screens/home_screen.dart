@@ -13,6 +13,9 @@ import '../widgets/settings_modal.dart';
 import '../widgets/learning_modal.dart';
 import '../widgets/banner_ad_widget.dart';
 import '../utils/daily_challenge.dart';
+import '../services/analytics_service.dart';
+import '../services/notification_service.dart';
+import '../services/ad_service.dart';
 
 class HomeScreen extends StatefulWidget {
   final GameStore store;
@@ -82,10 +85,11 @@ class _HomeScreenState extends State<HomeScreen> {
     'expert': '🏆',
   };
 
-  void _navigateToGame({int? seed, String? pin, String? diff, bool isOnline = false, bool isDaily = false}) {
+  Future<void> _navigateToGame({int? seed, String? pin, String? diff, bool isOnline = false, bool isDaily = false}) {
     final d = diff ?? _difficulty;
     widget.gameState.newGame(d, seed: seed, pin: pin, online: isOnline, isDaily: isDaily);
-    Navigator.of(context).push(
+    AnalyticsService().logGameStart(difficulty: d, mode: widget.gameState.mode);
+    return Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => GameScreen(
           store: store,
@@ -105,12 +109,81 @@ class _HomeScreenState extends State<HomeScreen> {
       diff: DailyChallenge.todayDifficulty,
       seed: DailyChallenge.todaySeed,
       isDaily: true,
+    ).then((_) => _afterDailyChallenge());
+  }
+
+  void _afterDailyChallenge() {
+    if (!mounted) return;
+    NotificationService().reschedule(store);
+
+    // Offer reminders once, right after the first solved daily - the moment
+    // the player has a streak worth protecting
+    if (store.hasCompletedDailyToday && !store.dailyRemindersEnabled && !store.reminderPromptShown) {
+      store.markReminderPromptShown();
+      _showReminderPrompt();
+    }
+  }
+
+  void _showReminderPrompt() {
+    final c = colors;
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: c.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('🔔', style: TextStyle(fontSize: 44)),
+              const SizedBox(height: 10),
+              Text(
+                'Never miss a daily puzzle',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: c.text),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "Get one reminder at ${NotificationService.reminderHour - 12}:00 PM when you haven't played yet, so your streak stays alive.",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14, color: c.textMuted, height: 1.4),
+              ),
+              const SizedBox(height: 20),
+              GestureDetector(
+                onTap: () async {
+                  HapticFeedback.lightImpact();
+                  Navigator.pop(dialogContext);
+                  await NotificationService().enableReminders(store, source: 'prompt');
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)]),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Text('Remind Me',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text('Not now', style: TextStyle(color: c.textMuted, fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
   void _continueGame() {
     if (store.savedGame == null) return;
     widget.gameState.loadFromSaved(store.savedGame!);
+    AnalyticsService().logGameResume(difficulty: widget.gameState.difficulty);
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => GameScreen(store: store, gameState: widget.gameState, onToggleTheme: widget.onToggleTheme),
@@ -120,7 +193,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    print('store.adsConsent: ${store.adsConsent}');
     final c = colors;
     return Scaffold(
       backgroundColor: c.bg,
@@ -135,16 +207,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   _buildHeader(c),
                   const SizedBox(height: 20),
-                  // 0\. User Identity & Motivation
-                  // _buildProfileCard(c),
-                  // const SizedBox(height: 20),
-                  // 1. Primary Action - New Game
+                  // 1. Time-sensitive - Daily Challenge
+                  _buildDailyChallengeCard(c),
+                  const SizedBox(height: 16),
+                  // 2. Challenge a Friend - Highlighted card
+                  _buildChallengeFriendCard(c),
+                  const SizedBox(height: 16),
+                  // 3. New Puzzle
                   _buildPlaySection(c),
                   const SizedBox(height: 20),
-                  // 2. Time-sensitive - Daily Challenge
-                  _buildDailyChallengeCard(c),
-                  const SizedBox(height: 20),
-                  // 3. Quick Stats Overview
+                  // 4. Quick Stats Overview
                   _buildStats(c),
                   const SizedBox(height: 20),
                   // 5. Historical Data
@@ -152,8 +224,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 9),
                   _buildScores(c),
                   const SizedBox(height: 20),
-                  // Banner Ad
-                  if (store.adsConsent) const BannerAdWidget(),
+                  // Banner Ad (keyed so it reloads once the ads SDK finishes starting)
+                  BannerAdWidget(key: ValueKey(AdService().isInitialized)),
                 ],
               ),
             ),
@@ -672,15 +744,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
           // Main play button
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: _buildMainPlayButton(c),
-          ),
-          const SizedBox(height: 10),
-
-          // Secondary buttons
-          Padding(
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-            child: _buildChallengeButton(c),
+            child: _buildMainPlayButton(c),
           ),
         ],
       ),
@@ -695,8 +760,8 @@ class _HomeScreenState extends State<HomeScreen> {
       'expert': const Color(0xFFEF4444),
     };
     final diffClues = {
-      'easy': '38+ clues',
-      'medium': '30-37 clues',
+      'easy': '32-37 clues',
+      'medium': '30-31 clues',
       'hard': '25-29 clues',
       'expert': '22-24 clues',
     };
@@ -918,38 +983,76 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildChallengeButton(AppColorScheme c) {
+  Widget _buildChallengeFriendCard(AppColorScheme c) {
     return GestureDetector(
       onTap: () {
         HapticFeedback.lightImpact();
         _showChallengeModal();
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             colors: [Color(0xFFF72585), Color(0xFF7209B7)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFFF72585).withValues(alpha: 0.25),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+              color: const Color(0xFFF72585).withValues(alpha: 0.35),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Row(
           children: [
-            Text('⚔️', style: TextStyle(fontSize: 16)),
-            SizedBox(width: 8),
-            Text(
-              'Challenge Friend',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Text('⚔️', style: TextStyle(fontSize: 28)),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Challenge a Friend',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Compete on the same puzzle!',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withValues(alpha: 0.85),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
                 color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Play',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFFF72585),
+                ),
               ),
             ),
           ],

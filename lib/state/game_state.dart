@@ -60,7 +60,10 @@ class GameState extends ChangeNotifier {
   void Function(int totalSeconds, int mistakes)? onDailyWon;
   void Function(int totalSeconds, int mistakes)? onDailyLost;
 
-  static const maxMistakes = 3;
+  static const maxMistakes = 5;
+
+  /// Analytics label for the current mode
+  String get mode => onlineMode ? 'online' : dailyMode ? 'daily' : challengeMode ? 'challenge' : 'classic';
 
   bool get hasSelection => selectedRow != null && selectedCol != null;
   int get selectedValue => hasSelection && board.isNotEmpty ? board[selectedRow!][selectedCol!] : 0;

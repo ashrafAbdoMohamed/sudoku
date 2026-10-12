@@ -1,5 +1,6 @@
 import 'package:in_app_review/in_app_review.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'share_service.dart';
 
 class RateAppService {
   static const String _hasRatedKey = 'has_rated_app';
@@ -51,10 +52,7 @@ class RateAppService {
         await prefs.setBool(_hasRatedKey, true);
       } else {
         // Fallback: open store listing
-        await _inAppReview.openStoreListing(
-          appStoreId: 'YOUR_APP_STORE_ID', // TODO: Replace with actual App Store ID
-          microsoftStoreId: 'YOUR_MS_STORE_ID', // TODO: Replace if needed
-        );
+        await _inAppReview.openStoreListing(appStoreId: ShareService.appStoreId);
       }
     } catch (e) {
       // Update last prompt time so we don't spam
@@ -78,8 +76,6 @@ class RateAppService {
 
   /// Manually open store listing (for settings menu)
   Future<void> openStoreListing() async {
-    await _inAppReview.openStoreListing(
-      appStoreId: 'YOUR_APP_STORE_ID', // TODO: Replace with actual App Store ID
-    );
+    await _inAppReview.openStoreListing(appStoreId: ShareService.appStoreId);
   }
 }

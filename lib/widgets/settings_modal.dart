@@ -5,6 +5,7 @@ import '../theme/board_themes.dart';
 import '../state/game_store.dart';
 import '../services/rate_app_service.dart';
 import '../services/share_service.dart';
+import '../services/notification_service.dart';
 import 'learning_modal.dart';
 import 'achievements_modal.dart';
 import 'legal_modal.dart';
@@ -29,6 +30,7 @@ class SettingsModal extends StatefulWidget {
 }
 
 class _SettingsModalState extends State<SettingsModal> {
+  bool _remindersBlocked = false;
   late TextEditingController _nameCtrl;
   late String _selectedColor;
   bool _profileChanged = false;
@@ -212,6 +214,35 @@ class _SettingsModalState extends State<SettingsModal> {
                           }
                           store.toggleHaptic();
                           setState(() {});
+                        },
+                        activeTrackColor: c.primary.withValues(alpha: 0.5),
+                        activeThumbColor: c.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Reminders Section
+                    _sectionTitle('Reminders'),
+                    const SizedBox(height: 12),
+                    _settingRow(
+                      icon: '🔔',
+                      title: 'Daily Challenge Reminder',
+                      subtitle: store.dailyRemindersEnabled
+                          ? 'Every day at ${NotificationService.reminderHour - 12}:00 PM'
+                          : _remindersBlocked
+                              ? 'Allow notifications in system settings'
+                              : 'Off',
+                      trailing: Switch(
+                        value: store.dailyRemindersEnabled,
+                        onChanged: (v) async {
+                          HapticFeedback.selectionClick();
+                          if (v) {
+                            final granted = await NotificationService().enableReminders(store, source: 'settings');
+                            _remindersBlocked = !granted;
+                          } else {
+                            await NotificationService().disableReminders(store);
+                          }
+                          if (mounted) setState(() {});
                         },
                         activeTrackColor: c.primary.withValues(alpha: 0.5),
                         activeThumbColor: c.primary,

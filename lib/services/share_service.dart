@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:share_plus/share_plus.dart';
+import 'analytics_service.dart';
 
 class ShareService {
   static final ShareService _instance = ShareService._internal();
@@ -8,17 +9,14 @@ class ShareService {
   ShareService._internal();
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // APP STORE LINKS - UPDATE THESE WITH YOUR ACTUAL STORE IDs
+  // APP STORE LINKS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // TODO: Replace with your actual App Store ID
-  static const String _appStoreId = 'YOUR_APP_STORE_ID';
+  /// Numeric App Store ID - set once the iOS app is published.
+  /// While null, iOS users share the Play Store link.
+  static const String? appStoreId = null;
 
-  // TODO: Replace with your actual Play Store package name
-  static const String _playStorePackage = 'com.yourcompany.sudoku';
-
-  // TODO: Replace with your website domain (for universal links)
-  static const String _websiteDomain = 'https://yourapp.com';
+  static const String _playStorePackage = 'com.rocketgamestation.sudoku';
 
   // Custom URL scheme for deep linking
   static const String _urlScheme = 'sudoku';
@@ -27,14 +25,17 @@ class ShareService {
   // STORE LINKS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  String get playStoreUrl => 'https://play.google.com/store/apps/details?id=$_playStorePackage';
+  /// Play link tagged with an install referrer, so Firebase Analytics attributes
+  /// installs to the share that produced them (First user source = share_<source>)
+  String playStoreUrl({String source = 'app'}) =>
+      'https://play.google.com/store/apps/details?id=$_playStorePackage'
+      '&referrer=utm_source%3Dshare_$source%26utm_medium%3Dshare';
 
-  String get appStoreUrl => 'https://apps.apple.com/app/id$_appStoreId';
+  String get appStoreUrl => 'https://apps.apple.com/app/id$appStoreId';
 
-  String get storeUrl {
-    if (Platform.isAndroid) return playStoreUrl;
-    if (Platform.isIOS) return appStoreUrl;
-    return playStoreUrl; // Default to Play Store
+  String storeUrl({String source = 'app'}) {
+    if (Platform.isIOS && appStoreId != null) return appStoreUrl;
+    return playStoreUrl(source: source);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -46,14 +47,6 @@ class ShareService {
 
   /// Generate a deep link for a challenge
   String getChallengeLink(String pin) => '$_urlScheme://challenge/$pin';
-
-  /// Generate a web link that redirects to app or store
-  String getWebLink({String? path}) {
-    if (path != null) {
-      return '$_websiteDomain/$path';
-    }
-    return _websiteDomain;
-  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // SHARE FUNCTIONS
@@ -69,7 +62,8 @@ Challenge yourself with daily puzzles, compete on leaderboards, and track your p
 Download now:
 ''';
 
-    await Share.share('$message$storeUrl');
+    await Share.share('$message${storeUrl()}');
+    AnalyticsService().logShare(contentType: 'app');
     debugPrint('ShareService: Shared app link');
   }
 
@@ -84,47 +78,72 @@ Download now:
 Difficulty: ${difficulty[0].toUpperCase()}${difficulty.substring(1)}
 Challenge PIN: $pin
 
-1. Download Sudoku: $storeUrl
-2. Open the app and tap "Challenge Friend"
-3. Enter PIN: $pin
+1. Download Sudoku: ${storeUrl(source: 'challenge')}
+2. Open the app and tap "Challenge a Friend" → "Enter Code"
+3. Enter code: $pin
 
 Let's see who solves it faster! ⏱️
 ''';
 
     await Share.share(message);
+    AnalyticsService().logShare(contentType: 'challenge', itemId: difficulty);
     debugPrint('ShareService: Shared challenge $pin');
   }
 
-  /// Share game result (Wordle-style)
+  /// Share a solved puzzle. The message adapts to the mode:
+  /// - daily: puzzle number + streak, everyone can play the same puzzle today
+  /// - offline challenge ([challengePin]): friend can replay the exact puzzle
+  /// - online duel ([opponentName]): who won
   Future<void> shareResult({
     required String difficulty,
     required int time,
     required int mistakes,
-    required int streak,
+    int streak = 0,
     bool isDaily = false,
     int? dayNumber,
+    String? challengePin,
+    String? opponentName,
+    bool wonDuel = false,
   }) async {
     final timeStr = '${(time ~/ 60).toString().padLeft(2, '0')}:${(time % 60).toString().padLeft(2, '0')}';
+    final diff = '${difficulty[0].toUpperCase()}${difficulty.substring(1)}';
 
-    String header;
-    if (isDaily && dayNumber != null) {
-      header = '🧩 Sudoku Daily #$dayNumber';
+    final String header;
+    final String cta;
+    final String kind;
+    if (opponentName != null) {
+      kind = 'online';
+      header = wonDuel
+          ? '⚔️ I beat $opponentName in a live Sudoku duel!'
+          : '⚔️ Sudoku duel vs $opponentName - so close!';
+      cta = 'Think you can beat me? Download and challenge me:';
+    } else if (isDaily && dayNumber != null) {
+      kind = 'daily';
+      header = '🧩 Sudoku Daily #$dayNumber · $diff';
+      cta = 'Everyone gets the same puzzle today - can you beat my time?';
+    } else if (challengePin != null && challengePin.isNotEmpty) {
+      kind = 'challenge';
+      header = '🧩 Sudoku · $diff';
+      cta = 'Play the exact same puzzle: tap "Challenge a Friend" → "Enter Code" → $challengePin';
     } else {
-      header = '🧩 Sudoku · ${difficulty[0].toUpperCase()}${difficulty.substring(1)}';
+      kind = difficulty;
+      header = '🧩 Sudoku · $diff';
+      cta = 'Can you beat my time?';
     }
 
-    final mistakeEmoji = mistakes == 0 ? '✨' : '❌';
-    final streakEmoji = streak > 0 ? ' · 🔥 $streak day streak' : '';
+    final mistakesStr = mistakes == 0 ? '✨ No mistakes' : '❌ $mistakes mistake${mistakes == 1 ? '' : 's'}';
+    final streakStr = isDaily && streak > 0 ? ' · 🔥 $streak-day streak' : '';
 
     final message = '''
 $header
-⏱️ $timeStr | $mistakeEmoji $mistakes mistakes$streakEmoji
+⏱️ $timeStr | $mistakesStr$streakStr
 
-Can you beat my time?
-$storeUrl
+$cta
+${storeUrl(source: 'result')}
 ''';
 
     await Share.share(message);
+    AnalyticsService().logShare(contentType: 'result', itemId: kind);
     debugPrint('ShareService: Shared result');
   }
 

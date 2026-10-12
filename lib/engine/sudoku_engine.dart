@@ -17,7 +17,7 @@ class SudokuEngine {
     _solve(grid);
     solution = grid.map((r) => List<int>.from(r)).toList();
 
-    final targets = {'easy': 36, 'medium': 30, 'hard': 26, 'expert': 22};
+    final targets = {'easy': 32, 'medium': 30, 'hard': 26, 'expert': 22};
     int toRemove = 81 - (targets[difficulty] ?? 36);
 
     final positions = List.generate(81, (i) => i);

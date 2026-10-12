@@ -7,6 +7,8 @@ import 'state/game_store.dart';
 import 'state/game_state.dart';
 import 'services/sound_service.dart';
 import 'services/ad_service.dart';
+import 'services/analytics_service.dart';
+import 'services/notification_service.dart';
 import 'services/deep_link_service.dart';
 import 'screens/splash_screen.dart';
 import 'screens/home_screen.dart';
@@ -53,7 +55,7 @@ class SudokuApp extends StatefulWidget {
   State<SudokuApp> createState() => _SudokuAppState();
 }
 
-class _SudokuAppState extends State<SudokuApp> {
+class _SudokuAppState extends State<SudokuApp> with WidgetsBindingObserver {
   final GameStore _store = GameStore();
   final GameState _gameState = GameState();
   bool _showSplash = true;
@@ -68,12 +70,17 @@ class _SudokuAppState extends State<SudokuApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _store.load().then((_) async {
       await SoundService().init(_store);
+      await _applyAnalyticsConsent();
 
-      // Initialize ads if consent already given
-      if (_store.gdprConsentGiven && _store.adsConsent) {
-        await AdService().initialize();
+      // Rebuild the week of daily reminders from current streak/progress
+      await NotificationService().reschedule(_store);
+
+      // Ads start once the consent dialog has been answered
+      if (_store.gdprConsentGiven) {
+        await _initializeAds();
       }
 
       // Initialize deep links
@@ -91,14 +98,25 @@ class _SudokuAppState extends State<SudokuApp> {
         sound: _store.soundEnabled,
         haptic: _store.hapticEnabled,
       );
+      _applyAnalyticsConsent();
+      AdService().setPersonalized(_store.adsConsent);
       setState(() {});
     });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _deepLinkSubscription?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The app can sit in memory across days - refresh reminders on return
+    if (state == AppLifecycleState.resumed && _loaded) {
+      NotificationService().reschedule(_store);
+    }
   }
 
   void _handleDeepLink(DeepLinkData data) {
@@ -123,12 +141,18 @@ class _SudokuAppState extends State<SudokuApp> {
     setState(() {});
   }
 
-  /// Initialize ads after consent is given
-  Future<void> _initializeAdsAfterConsent() async {
-    if (_store.adsConsent) {
-      await AdService().initialize();
-    }
+  /// Everyone who answered the consent dialog gets ads; only those who
+  /// allowed "Personalized Ads" get personalized ones
+  Future<void> _initializeAds() async {
+    await AdService().initialize(personalized: _store.adsConsent);
+    // The home banner was built before the SDK was ready - rebuild it
+    if (mounted) setState(() {});
   }
+
+  Future<void> _applyAnalyticsConsent() => AnalyticsService().applyConsent(
+        analytics: _store.gdprConsentGiven && _store.analyticsConsent,
+        ads: _store.gdprConsentGiven && _store.adsConsent,
+      );
 
   void _toggleTheme() {
     _store.toggleTheme();
@@ -176,17 +200,17 @@ class _SudokuAppState extends State<SudokuApp> {
             barrierDismissible: false,
             builder: (_) => GdprConsentDialog(
               colors: _colors,
-              onAcceptAll: () {
-                _store.acceptAllConsent();
+              onAccept: (analytics, ads) {
+                _store.acceptConsent(analytics: analytics, ads: ads);
                 setState(() => _showGdprConsent = false);
                 Navigator.pop(navigatorKey.currentContext!);
-                _initializeAdsAfterConsent();
+                _initializeAds();
               },
               onAcceptEssential: () {
                 _store.acceptEssentialOnly();
                 setState(() => _showGdprConsent = false);
                 Navigator.pop(navigatorKey.currentContext!);
-                // No ads for essential-only consent
+                _initializeAds(); // Non-personalized
               },
               onShowPrivacyPolicy: _showPrivacyPolicy,
             ),

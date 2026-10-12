@@ -8,6 +8,7 @@ import '../utils/challenge_utils.dart';
 import '../main.dart' show isFirebaseAvailable;
 import '../services/online_challenge_service.dart';
 import '../services/share_service.dart';
+import '../services/analytics_service.dart';
 import '../models/online_room.dart';
 
 class ChallengeModal extends StatefulWidget {
@@ -80,10 +81,12 @@ class _ChallengeModalState extends State<ChallengeModal> {
       _pin = pin;
       _startListeningToRoom();
       setState(() => _generated = true);
+      AnalyticsService().logChallengeCreated(difficulty: _cDiff, type: 'online');
     } else {
       // Offline mode - use existing PIN encoding
       _pin = ChallengeUtils.encodePin(_cDiff, _seed);
       setState(() => _generated = true);
+      AnalyticsService().logChallengeCreated(difficulty: _cDiff, type: 'offline');
     }
   }
 
@@ -127,7 +130,7 @@ class _ChallengeModalState extends State<ChallengeModal> {
     if (_isOnlineMode && isFirebaseAvailable) {
       // Join online room
       if (pinText.length != 6) {
-        setState(() => _joinError = 'Please enter a 6-digit PIN.');
+        setState(() => _joinError = 'Please enter a 6-digit code.');
         return;
       }
 
@@ -152,6 +155,8 @@ class _ChallengeModalState extends State<ChallengeModal> {
       _seed = result.seed!;
       _cDiff = result.difficulty!;
       _startListeningToRoom();
+      AnalyticsService().logChallengeJoined(
+          difficulty: _cDiff, type: 'online', fromLink: widget.initialPin != null);
 
       setState(() {
         _isJoining = false;
@@ -161,10 +166,12 @@ class _ChallengeModalState extends State<ChallengeModal> {
       // Offline mode - decode PIN
       final data = ChallengeUtils.decodePin(pinText);
       if (data == null) {
-        setState(() => _joinError = 'Invalid PIN. Please check and try again.');
+        setState(() => _joinError = 'Invalid code. Please check and try again.');
         return;
       }
       setState(() => _joinError = '');
+      AnalyticsService().logChallengeJoined(
+          difficulty: data.difficulty, type: 'offline', fromLink: widget.initialPin != null);
       Navigator.pop(context);
       widget.onStartChallenge(data.difficulty, data.seed, pinText);
     }
@@ -192,7 +199,7 @@ class _ChallengeModalState extends State<ChallengeModal> {
             const Text('⚔️', style: TextStyle(fontSize: 50)),
             const SizedBox(height: 8),
             Text(
-              'Challenge Mode',
+              'Play with a Friend',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: c.text),
             ),
             const SizedBox(height: 16),
@@ -205,7 +212,7 @@ class _ChallengeModalState extends State<ChallengeModal> {
             Container(
               padding: const EdgeInsets.all(3),
               decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(10)),
-              child: Row(children: [_tab('Create', _isCreateTab), _tab('Join', !_isCreateTab)]),
+              child: Row(children: [_tab('Host Game', _isCreateTab), _tab('Enter Code', !_isCreateTab)]),
             ),
             const SizedBox(height: 18),
             if (_isCreateTab) _buildCreate() else _buildJoin(),
@@ -324,7 +331,7 @@ class _ChallengeModalState extends State<ChallengeModal> {
       child: GestureDetector(
         onTap: () {
           if (_isWaitingForOpponent) return;
-          setState(() => _isCreateTab = label == 'Create');
+          setState(() => _isCreateTab = label == 'Host Game');
         },
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 9),
@@ -348,14 +355,14 @@ class _ChallengeModalState extends State<ChallengeModal> {
       return Column(
         children: [
           Text(
-            'Choose difficulty for the challenge',
+            'Pick a difficulty level, then share the code with your friend',
             style: TextStyle(fontSize: 13, color: c.textMuted),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 12),
           _diffBar(),
           const SizedBox(height: 16),
-          _gradBtn('Generate Challenge →', _generate),
+          _gradBtn('Create Game Code →', _generate),
         ],
       );
     }
@@ -370,8 +377,8 @@ class _ChallengeModalState extends State<ChallengeModal> {
       children: [
         Text(
           _isOnlineMode
-              ? 'Share the PIN with your friend to play together'
-              : 'Share with your friend — they scan the QR or enter the PIN',
+              ? 'Share this code with your friend to play together!'
+              : 'Your friend can scan the QR code or type the code below',
           style: TextStyle(fontSize: 13, color: c.textMuted),
           textAlign: TextAlign.center,
         ),
@@ -388,7 +395,7 @@ class _ChallengeModalState extends State<ChallengeModal> {
               Expanded(child: Divider(color: c.border)),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Text('or enter PIN', style: TextStyle(fontSize: 11, color: c.textMuted)),
+                child: Text('or enter code', style: TextStyle(fontSize: 11, color: c.textMuted)),
               ),
               Expanded(child: Divider(color: c.border)),
             ],
@@ -431,7 +438,7 @@ class _ChallengeModalState extends State<ChallengeModal> {
             const SizedBox(width: 8),
             Expanded(
               flex: 2,
-              child: _gradBtn('Start My Game →', () {
+              child: _gradBtn('Play Now →', () {
                 Navigator.pop(context);
                 widget.onStartChallenge(_cDiff, _seed, _pin);
               }),
@@ -484,7 +491,7 @@ class _ChallengeModalState extends State<ChallengeModal> {
           child: Column(
             children: [
               Text(
-                'CHALLENGE PIN',
+                'GAME CODE',
                 style: TextStyle(fontSize: 10, color: c.textMuted, letterSpacing: 1),
               ),
               const SizedBox(height: 6),
@@ -558,8 +565,8 @@ class _ChallengeModalState extends State<ChallengeModal> {
       children: [
         Text(
           _isOnlineMode
-              ? 'Enter the 6-digit PIN to join the live game'
-              : 'Enter the 6-digit PIN your friend shared',
+              ? 'Enter the 6-digit code to join the live game'
+              : 'Enter the 6-digit code your friend shared with you',
           style: TextStyle(fontSize: 13, color: c.textMuted),
           textAlign: TextAlign.center,
         ),
@@ -613,7 +620,7 @@ class _ChallengeModalState extends State<ChallengeModal> {
                   child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
                 ),
               )
-            : _gradBtn('Join Challenge →', _join),
+            : _gradBtn('Start Playing →', _join),
       ],
     );
   }
@@ -649,7 +656,7 @@ class _ChallengeModalState extends State<ChallengeModal> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _joinStat(ChallengeUtils.formatPin(_pin), 'PIN'),
+              _joinStat(ChallengeUtils.formatPin(_pin), 'Code'),
               _joinStat(_cDiff[0].toUpperCase() + _cDiff.substring(1), 'Difficulty'),
             ],
           ),

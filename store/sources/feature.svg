@@ -1,0 +1,95 @@
+<svg width="1024" height="500" viewBox="0 0 1024 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="fbg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#24478C"/>
+      <stop offset="0.5" stop-color="#1B3A78"/>
+      <stop offset="1" stop-color="#0C1D45"/>
+    </linearGradient>
+    <radialGradient id="fglow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#7FD9F0" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#7FD9F0" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="fpanelClip">
+      <rect x="106" y="106" width="300" height="300" rx="38"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1024" height="500" fill="url(#fbg)"/>
+
+  <g fill="#FFFFFF">
+    <circle cx="58" cy="60" r="3" opacity="0.7"/>
+    <circle cx="150" cy="426" r="2.6" opacity="0.55"/>
+    <circle cx="330" cy="70" r="2.4" opacity="0.5"/>
+    <circle cx="470" cy="440" r="3" opacity="0.6"/>
+    <circle cx="600" cy="58" r="2.6" opacity="0.55"/>
+    <circle cx="980" cy="120" r="3.2" opacity="0.7"/>
+    <circle cx="948" cy="430" r="2.8" opacity="0.6"/>
+    <circle cx="640" cy="462" r="2.4" opacity="0.5"/>
+    <circle cx="1002" cy="272" r="2.4" opacity="0.45"/>
+  </g>
+  <path d="M556 96 L560 110 L574 114 L560 118 L556 132 L552 118 L538 114 L552 110 Z" fill="#7FD9F0" opacity="0.75"/>
+  <path d="M962 330 L966 343 L979 347 L966 351 L962 364 L958 351 L945 347 L958 343 Z" fill="#FFFFFF" opacity="0.6"/>
+
+  <circle cx="782" cy="248" r="232" fill="url(#fglow)"/>
+
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+    <text x="72" y="196" fill="#FFFFFF" font-size="104" font-weight="800" letter-spacing="2">SUDOKU</text>
+    <text x="76" y="252" fill="#F9A03F" font-size="41" font-weight="800" letter-spacing="4.5">CHALLENGE A FRIEND</text>
+    <text x="77" y="312" fill="#BDD0EE" font-size="27" font-weight="500">Same puzzle. Two players. One winner.</text>
+
+    <g transform="translate(77,352)">
+      <rect x="0" y="0" width="146" height="42" rx="21" fill="#FFFFFF" fill-opacity="0.11" stroke="#7FA3D8" stroke-opacity="0.4"/>
+      <text x="73" y="27" fill="#DCE7F8" font-size="16" font-weight="700" text-anchor="middle" letter-spacing="1">4 DIFFICULTIES</text>
+
+      <rect x="158" y="0" width="176" height="42" rx="21" fill="#FFFFFF" fill-opacity="0.11" stroke="#7FA3D8" stroke-opacity="0.4"/>
+      <text x="246" y="27" fill="#DCE7F8" font-size="16" font-weight="700" text-anchor="middle" letter-spacing="1">DAILY CHALLENGE</text>
+
+      <rect x="346" y="0" width="132" height="42" rx="21" fill="#FFFFFF" fill-opacity="0.11" stroke="#7FA3D8" stroke-opacity="0.4"/>
+      <text x="412" y="27" fill="#DCE7F8" font-size="16" font-weight="700" text-anchor="middle" letter-spacing="1">PLAYS OFFLINE</text>
+    </g>
+
+    <text x="74" y="456" fill="#6E92CC" font-size="15" font-weight="700" letter-spacing="3.6">ROCKET GAME STATION</text>
+  </g>
+
+  <g transform="translate(782,248) rotate(-8) scale(1.02) translate(-256,-256)">
+    <rect x="106" y="106" width="300" height="300" rx="38" fill="#FFFFFF"/>
+
+    <g clip-path="url(#fpanelClip)">
+      <path d="M106 306 h100 v-100 h100 v-100 h100 v100 h-100 v100 h-100 v100 h-100 Z" fill="#DDE7F8"/>
+      <g stroke="#F58220" stroke-width="13" stroke-linecap="round" opacity="0.9">
+        <path d="M198 328 L172 354"/>
+        <path d="M228 352 L200 380"/>
+        <path d="M156 296 L136 316"/>
+      </g>
+    </g>
+
+    <g stroke="#0F2350" stroke-width="7" stroke-linecap="round">
+      <path d="M206 116 V396"/>
+      <path d="M306 116 V396"/>
+      <path d="M116 206 H396"/>
+      <path d="M116 306 H396"/>
+    </g>
+
+    <rect x="106" y="106" width="300" height="300" rx="38" fill="none" stroke="#0F2350" stroke-width="9"/>
+
+    <g fill="#1B3A78" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="800" font-size="76" text-anchor="middle">
+      <text x="256" y="182">7</text>
+      <text x="156" y="282">9</text>
+      <text x="356" y="282">3</text>
+      <text x="256" y="382">4</text>
+    </g>
+
+    <g transform="translate(304,212) rotate(45) scale(1.26)">
+      <path d="M-21 26 L-44 58 L-44 78 L-21 62 Z" fill="#E23D2E" stroke="#0F2350" stroke-width="6" stroke-linejoin="round"/>
+      <path d="M21 26 L44 58 L44 78 L21 62 Z" fill="#E23D2E" stroke="#0F2350" stroke-width="6" stroke-linejoin="round"/>
+      <path d="M-18 60 C-18 84 0 116 0 116 C0 116 18 84 18 60 Z" fill="#F58220" stroke="#0F2350" stroke-width="6" stroke-linejoin="round"/>
+      <path d="M-9 62 C-9 78 0 98 0 98 C0 98 9 78 9 62 Z" fill="#FFC42E"/>
+      <path d="M0 -74 C19 -47 27 -11 27 24 L27 60 L-27 60 L-27 24 C-27 -11 -19 -47 0 -74 Z" fill="#FFFFFF" stroke="#0F2350" stroke-width="7" stroke-linejoin="round"/>
+      <path d="M0 -74 C11 -59 18 -40 22 -21 L-22 -21 C-18 -40 -11 -59 0 -74 Z" fill="#E23D2E"/>
+      <path d="M-24 40 H24" stroke="#0F2350" stroke-width="6" stroke-linecap="round"/>
+      <circle cx="0" cy="6" r="16" fill="#0F2350"/>
+      <circle cx="0" cy="6" r="11" fill="#7FD9F0"/>
+      <circle cx="-4" cy="2" r="4" fill="#FFFFFF" opacity="0.85"/>
+    </g>
+  </g>
+</svg>

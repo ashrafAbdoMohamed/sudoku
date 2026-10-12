@@ -44,3 +44,12 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 .claude/
+
+# Release signing — never commit these
+*.jks
+*.keystore
+key.properties
+keys/
+
+# Firebase deploy cache
+.firebase/

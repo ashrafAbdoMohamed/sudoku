@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AdService {
   static final AdService _instance = AdService._internal();
@@ -66,8 +68,16 @@ class AdService {
   bool _isInterstitialAdReady = false;
   bool _isRewardedAdReady = false;
 
+  /// Personalized ads only with consent; everyone else gets non-personalized ads
+  bool _personalized = false;
+
+  AdRequest get _request => AdRequest(nonPersonalizedAds: !_personalized);
+
+  void setPersonalized(bool personalized) => _personalized = personalized;
+
   /// Initialize the Mobile Ads SDK
-  Future<void> initialize() async {
+  Future<void> initialize({required bool personalized}) async {
+    _personalized = personalized;
     if (_initialized) return;
 
     try {
@@ -89,13 +99,14 @@ class AdService {
 
   /// Create a banner ad widget
   BannerAd createBannerAd({
+    required AdSize size,
     required void Function(Ad) onAdLoaded,
     required void Function(Ad, LoadAdError) onAdFailedToLoad,
   }) {
     return BannerAd(
       adUnitId: bannerAdUnitId,
-      size: AdSize.banner,
-      request: const AdRequest(),
+      size: size,
+      request: _request,
       listener: BannerAdListener(
         onAdLoaded: onAdLoaded,
         onAdFailedToLoad: onAdFailedToLoad,
@@ -116,27 +127,12 @@ class AdService {
 
     InterstitialAd.load(
       adUnitId: interstitialAdUnitId,
-      request: const AdRequest(),
+      request: _request,
       adLoadCallback: InterstitialAdLoadCallback(
         onAdLoaded: (ad) {
           debugPrint('AdService: Interstitial ad loaded');
           _interstitialAd = ad;
           _isInterstitialAdReady = true;
-
-          ad.fullScreenContentCallback = FullScreenContentCallback(
-            onAdDismissedFullScreenContent: (ad) {
-              debugPrint('AdService: Interstitial ad dismissed');
-              ad.dispose();
-              _isInterstitialAdReady = false;
-              _loadInterstitialAd(); // Pre-load next ad
-            },
-            onAdFailedToShowFullScreenContent: (ad, error) {
-              debugPrint('AdService: Interstitial ad failed to show - $error');
-              ad.dispose();
-              _isInterstitialAdReady = false;
-              _loadInterstitialAd();
-            },
-          );
         },
         onAdFailedToLoad: (error) {
           debugPrint('AdService: Interstitial ad failed to load - $error');
@@ -148,21 +144,69 @@ class AdService {
     );
   }
 
-  /// Show interstitial ad (call after game completion)
+  /// Show interstitial ad. Completes when the ad is closed (so a new game's
+  /// timer doesn't run behind it); returns false if nothing was shown.
   Future<bool> showInterstitialAd() async {
-    if (!_isInterstitialAdReady || _interstitialAd == null) {
+    final ad = _interstitialAd;
+    if (!_isInterstitialAdReady || ad == null) {
       debugPrint('AdService: Interstitial ad not ready');
       return false;
     }
 
+    final closed = Completer<bool>();
+    ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        debugPrint('AdService: Interstitial ad dismissed');
+        ad.dispose();
+        _loadInterstitialAd(); // Pre-load next ad
+        if (!closed.isCompleted) closed.complete(true);
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        debugPrint('AdService: Interstitial ad failed to show - $error');
+        ad.dispose();
+        _loadInterstitialAd();
+        if (!closed.isCompleted) closed.complete(false);
+      },
+    );
+
+    _interstitialAd = null;
+    _isInterstitialAdReady = false;
     try {
-      await _interstitialAd!.show();
-      _interstitialAd = null;
-      return true;
+      await ad.show();
     } catch (e) {
       debugPrint('AdService: Failed to show interstitial - $e');
       return false;
     }
+    return closed.future;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INTERSTITIAL FREQUENCY
+  // Counted across screens and app launches, so players who go back to Home
+  // between games (or play one game per session) still reach the cap.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  static const int gamesBeforeInterstitial = 3;
+  static const String _gamesSinceAdKey = 'games_since_interstitial';
+
+  Future<void> recordGameCompleted() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_gamesSinceAdKey, (prefs.getInt(_gamesSinceAdKey) ?? 0) + 1);
+    } catch (_) {}
+  }
+
+  /// Show an interstitial if the player has finished enough games since the
+  /// last one. Call only at natural breaks (after a result dialog).
+  Future<void> maybeShowInterstitial() async {
+    if (!_initialized) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if ((prefs.getInt(_gamesSinceAdKey) ?? 0) < gamesBeforeInterstitial) return;
+      if (await showInterstitialAd()) {
+        await prefs.setInt(_gamesSinceAdKey, 0);
+      }
+    } catch (_) {}
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -176,7 +220,7 @@ class AdService {
 
     RewardedAd.load(
       adUnitId: rewardedAdUnitId,
-      request: const AdRequest(),
+      request: _request,
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
           debugPrint('AdService: Rewarded ad loaded');

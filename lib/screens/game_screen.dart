@@ -12,6 +12,8 @@ import '../widgets/achievements_modal.dart';
 import '../widgets/coach_marks_overlay.dart';
 import '../widgets/theme_picker.dart';
 import '../services/online_challenge_service.dart';
+import '../services/analytics_service.dart';
+import '../services/share_service.dart';
 import '../services/leaderboard_service.dart';
 import '../services/sound_service.dart';
 import '../services/rate_app_service.dart';
@@ -20,6 +22,8 @@ import '../widgets/rate_app_dialog.dart';
 import '../models/online_room.dart';
 import '../models/achievement.dart';
 import '../utils/daily_challenge.dart';
+import '../widgets/board_scanner_loader.dart';
+import '../widgets/banner_ad_widget.dart';
 
 class GameScreen extends StatefulWidget {
   final GameStore store;
@@ -95,8 +99,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   final AdService _adService = AdService();
 
   // Track games completed for interstitial ad frequency
-  int _gamesCompletedSinceAd = 0;
-  static const int _gamesBeforeInterstitial = 3; // Show ad every 3 games
 
   // Calculate progress percentage
   int get _filledCells {
@@ -220,7 +222,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       marks.add(CoachMark(
         icon: '⏱️',
         title: 'Game Stats',
-        description: 'Track your time and mistakes. Three mistakes and it\'s game over! Tap the pause button to take a break.',
+        description: 'Track your time and mistakes. Five mistakes and it\'s game over! Tap the pause button to take a break.',
         targetRect: statsRect,
         position: TooltipPosition.below,
       ));
@@ -261,6 +263,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void _onAchievementUnlocked(Achievement achievement) {
+    AnalyticsService().logAchievementUnlocked(achievement.id);
     _pendingAchievements.add(achievement);
     _showNextAchievement();
   }
@@ -510,6 +513,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
     if (game.status == GameStatus.won) {
       _timer?.cancel();
+      _logGameEnd(won: true);
       // Daily challenges record their own stats via callbacks
       if (!isDaily) {
         store.recordWin(game.difficulty, game.seconds, game.mistakes);
@@ -565,8 +569,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       _sound.playWin();
       setState(() => _showConfetti = true);
 
-      // Track games for interstitial ad
-      _gamesCompletedSinceAd++;
+      // Track games for interstitial ad (online duels never show one)
+      if (!isOnline) _adService.recordGameCompleted();
 
       // Check for rate prompt after perfect win (0 mistakes)
       if (game.mistakes == 0) {
@@ -578,13 +582,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       });
     } else if (game.status == GameStatus.lost) {
       _timer?.cancel();
+      _logGameEnd(won: false);
       // Daily challenges record their own stats via callbacks
       if (!isDaily) {
         store.recordLoss(game.difficulty, game.seconds, game.mistakes);
       }
 
-      // Track games for interstitial ad
-      _gamesCompletedSinceAd++;
+      // Track games for interstitial ad (online duels never show one)
+      if (!isOnline) _adService.recordGameCompleted();
 
       _sound.playLose();
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -592,6 +597,32 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       });
     }
     setState(() {});
+  }
+
+  /// Opens the system share sheet with this game's result
+  void _shareResult({bool wonDuel = false}) {
+    ShareService().shareResult(
+      difficulty: game.difficulty,
+      time: game.seconds,
+      mistakes: game.mistakes,
+      streak: store.currentStreak,
+      isDaily: isDaily,
+      dayNumber: isDaily ? DailyChallenge.todayNumber : null,
+      challengePin: !isOnline && game.challengeMode ? game.challengePin : null,
+      opponentName: isOnline ? (_opponent?.name ?? 'a friend') : null,
+      wonDuel: wonDuel,
+    );
+  }
+
+  void _logGameEnd({required bool won}) {
+    AnalyticsService().logGameEnd(
+      won: won,
+      difficulty: game.difficulty,
+      mode: game.mode,
+      seconds: game.seconds,
+      mistakes: game.mistakes,
+      hints: game.hintCells.length,
+    );
   }
 
   @override
@@ -663,7 +694,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final pin = game.challengeMode ? game.challengePin : null;
     setState(() => _showConfetti = false);
     _timer?.cancel();
-    await game.newGame(game.difficulty, seed: seed, pin: pin);
+    final started = game.newGame(game.difficulty, seed: seed, pin: pin);
+    AnalyticsService().logGameStart(difficulty: game.difficulty, mode: game.mode);
+    await started;
     if (mounted) _startTimer();
   }
 
@@ -774,50 +807,58 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           children: [
             // Main content inside SafeArea
             SafeArea(
-              child: Stack(
+              child: Column(
                 children: [
-                  SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 460),
-                        child: Column(
-                          children: [
-                            _buildHeader(c),
-                            const SizedBox(height: 16),
-                            // Show opponent progress for online challenges
-                            if (isOnline && _opponent != null) ...[
-                              OpponentProgressBar(opponent: _opponent!, colors: c),
-                              const SizedBox(height: 12),
-                            ],
-                            KeyedSubtree(key: _statsKey, child: _buildStatsBar(c)),
-                            const SizedBox(height: 8),
-                            _buildProgressBar(c),
-                            const SizedBox(height: 14),
-                            KeyedSubtree(key: _boardKey, child: _buildBoard(c)),
-                            const SizedBox(height: 14),
-                            KeyedSubtree(key: _numpadKey, child: _buildNumpad(c)),
-                            const SizedBox(height: 10),
-                            _buildActionBar(c),
-                            const SizedBox(height: 12),
-                            _buildNewGameButton(),
-                          ],
+                  Expanded(
+                    child: Stack(
+                    children: [
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 460),
+                            child: Column(
+                              children: [
+                                _buildHeader(c),
+                                const SizedBox(height: 16),
+                                // Show opponent progress for online challenges
+                                if (isOnline && _opponent != null) ...[
+                                  OpponentProgressBar(opponent: _opponent!, colors: c),
+                                  const SizedBox(height: 12),
+                                ],
+                                KeyedSubtree(key: _statsKey, child: _buildStatsBar(c)),
+                                const SizedBox(height: 8),
+                                _buildProgressBar(c),
+                                const SizedBox(height: 14),
+                                KeyedSubtree(key: _boardKey, child: _buildBoard(c)),
+                                const SizedBox(height: 14),
+                                KeyedSubtree(key: _numpadKey, child: _buildNumpad(c)),
+                                const SizedBox(height: 10),
+                                _buildActionBar(c),
+                                const SizedBox(height: 12),
+                                _buildNewGameButton(),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
+                      if (_showConfetti) const ConfettiOverlay(),
+                      // Achievement unlock notification
+                      if (_showingAchievement != null)
+                        Positioned(
+                          top: 10,
+                          left: 0,
+                          right: 0,
+                          child: AchievementUnlockNotification(
+                            achievement: _showingAchievement!,
+                            onDismiss: _dismissAchievement,
+                          ),
+                        ),
+                    ],
                     ),
                   ),
-                  if (_showConfetti) const ConfettiOverlay(),
-                  // Achievement unlock notification
-                  if (_showingAchievement != null)
-                    Positioned(
-                      top: 10,
-                      left: 0,
-                      right: 0,
-                      child: AchievementUnlockNotification(
-                        achievement: _showingAchievement!,
-                        onDismiss: _dismissAchievement,
-                      ),
-                    ),
+                  // Banner pinned under the game - where players spend their time
+                  BannerAdWidget(key: ValueKey(_adService.isInitialized)),
                 ],
               ),
             ),
@@ -955,11 +996,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           // Mistakes
           Row(
             children: [
-              ...List.generate(3, (i) => Padding(
-                padding: const EdgeInsets.only(right: 5),
+              ...List.generate(5, (i) => Padding(
+                padding: const EdgeInsets.only(right: 4),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
-                  width: 9, height: 9,
+                  width: 8, height: 8,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: i < game.mistakes ? c.errColor : c.border,
@@ -1032,7 +1073,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           AspectRatio(
             aspectRatio: 1,
             child: (game.puzzle.isEmpty || game.isGenerating)
-                ? const Center(child: CircularProgressIndicator())
+                ? Center(
+                    child: BoardScannerLoader(
+                      primaryColor: c.primary,
+                      borderColor: c.border,
+                    ),
+                  )
                 : GridView.builder(
                     physics: const NeverScrollableScrollPhysics(),
                     gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 9),
@@ -1375,7 +1421,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         time: _fmtTime(game.seconds),
         mistakes: '${game.mistakes}',
         difficulty: game.difficulty[0].toUpperCase() + game.difficulty.substring(1),
-        onPlayAgain: () { Navigator.pop(context); _newGame(); },
+        onPlayAgain: () async {
+          Navigator.pop(context);
+          await _maybeShowInterstitialAd();
+          if (mounted) _newGame();
+        },
+        onShare: _shareResult,
         onHome: () async {
           Navigator.pop(context);
           await _maybeShowInterstitialAd();
@@ -1400,7 +1451,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       barrierDismissible: false,
       builder: (_) => _LoseDialog(
         colors: c,
-        onTryAgain: () { Navigator.pop(context); _newGame(); },
+        onTryAgain: () async {
+          Navigator.pop(context);
+          await _maybeShowInterstitialAd();
+          if (mounted) _newGame();
+        },
         onHome: () async {
           Navigator.pop(context);
           await _maybeShowInterstitialAd();
@@ -1420,8 +1475,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         mistakes: '${game.mistakes}',
         difficulty: game.difficulty[0].toUpperCase() + game.difficulty.substring(1),
         pin: game.challengePin ?? '',
-        onReplay: () {
+        onShare: _shareResult,
+        onReplay: () async {
           Navigator.pop(context);
+          await _maybeShowInterstitialAd();
+          if (!mounted) return;
           final s = game.challengeSeed;
           final p = game.challengePin;
           final d = game.difficulty;
@@ -1429,7 +1487,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           _startTimer();
           setState(() => _showConfetti = false);
         },
-        onHome: () { Navigator.pop(context); Navigator.pop(context); },
+        onHome: _closeResultAndGoHome,
       ),
     );
   }
@@ -1446,7 +1504,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         difficulty: DailyChallenge.difficultyDisplayName(game.difficulty),
         currentStreak: store.currentStreak,
         longestStreak: store.longestStreak,
-        onHome: () { Navigator.pop(context); Navigator.pop(context); },
+        onShare: _shareResult,
+        onHome: _closeResultAndGoHome,
       ),
     );
   }
@@ -1463,7 +1522,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         difficulty: DailyChallenge.difficultyDisplayName(game.difficulty),
         currentStreak: store.currentStreak,
         longestStreak: store.longestStreak,
-        onHome: () { Navigator.pop(context); Navigator.pop(context); },
+        onHome: _closeResultAndGoHome,
       ),
     );
   }
@@ -1502,6 +1561,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         opponentName: _opponent?.name ?? 'Opponent',
         opponentStatus: _opponent?.status ?? 'unknown',
         difficulty: game.difficulty[0].toUpperCase() + game.difficulty.substring(1),
+        onShare: () => _shareResult(wonDuel: resultType == OnlineResultType.winner),
         onHome: () {
           _onlineService.leaveRoom();
           Navigator.pop(context);
@@ -1538,9 +1598,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   /// Handle hint button press - show ad dialog if ads enabled
   void _onHintPressed(AppColorScheme c) {
     // If ads not enabled or no ad ready, give free hint
-    if (!store.adsConsent || !_adService.isRewardedAdReady) {
+    if (!_adService.isRewardedAdReady) {
       _sound.playHint();
       game.giveHint();
+      AnalyticsService().logHintUsed(source: 'free');
       return;
     }
 
@@ -1583,12 +1644,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                     onUserEarnedReward: () {
                       _sound.playHint();
                       game.giveHint();
+                      AnalyticsService().logHintUsed(source: 'rewarded_ad');
                     },
                   );
                   if (!rewarded && mounted) {
                     // Ad failed, give hint anyway
                     _sound.playHint();
                     game.giveHint();
+                    AnalyticsService().logHintUsed(source: 'free');
                   }
                 },
                 child: Container(
@@ -1647,22 +1710,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     );
   }
 
-  /// Show interstitial ad if conditions are met
+  Future<void> _closeResultAndGoHome() async {
+    Navigator.pop(context);
+    await _maybeShowInterstitialAd();
+    if (mounted) Navigator.pop(context);
+  }
+
+  /// Show an interstitial every few finished games, at the break after a
+  /// result dialog. Completes once the ad is closed.
   Future<void> _maybeShowInterstitialAd() async {
-    // Only show if user consented to ads
-    if (!store.adsConsent) return;
-
-    // Only show every N games
-    if (_gamesCompletedSinceAd < _gamesBeforeInterstitial) return;
-
     // Don't show during online matches (disruptive)
     if (isOnline) return;
-
-    // Show the ad
-    final shown = await _adService.showInterstitialAd();
-    if (shown) {
-      _gamesCompletedSinceAd = 0; // Reset counter
-    }
+    await _adService.maybeShowInterstitial();
   }
 
   Future<void> _checkRatePrompt() async {
@@ -1704,10 +1763,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 class _WinDialog extends StatelessWidget {
   final AppColorScheme colors;
   final String time, mistakes, difficulty;
-  final VoidCallback onPlayAgain;
+  final VoidCallback onPlayAgain, onShare;
   final Function() onHome; // Can be async
 
-  const _WinDialog({required this.colors, required this.time, required this.mistakes, required this.difficulty, required this.onPlayAgain, required this.onHome});
+  const _WinDialog({required this.colors, required this.time, required this.mistakes, required this.difficulty, required this.onPlayAgain, required this.onShare, required this.onHome});
 
   @override
   Widget build(BuildContext context) {
@@ -1739,6 +1798,8 @@ class _WinDialog extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             _gradientBtn('Play Again', onPlayAgain),
+            const SizedBox(height: 8),
+            _outlineBtn('📤 Share Result', onShare, colors),
             const SizedBox(height: 8),
             _outlineBtn('Home', onHome, colors),
           ],
@@ -1794,9 +1855,9 @@ class _LoseDialog extends StatelessWidget {
 class _ChallengeWinDialog extends StatelessWidget {
   final AppColorScheme colors;
   final String time, mistakes, difficulty, pin;
-  final VoidCallback onReplay, onHome;
+  final VoidCallback onReplay, onShare, onHome;
 
-  const _ChallengeWinDialog({required this.colors, required this.time, required this.mistakes, required this.difficulty, required this.pin, required this.onReplay, required this.onHome});
+  const _ChallengeWinDialog({required this.colors, required this.time, required this.mistakes, required this.difficulty, required this.pin, required this.onReplay, required this.onShare, required this.onHome});
 
   @override
   Widget build(BuildContext context) {
@@ -1839,11 +1900,7 @@ class _ChallengeWinDialog extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 14),
-            _gradientBtn('📋 Share Result', () {
-              final txt = '🏆 I solved the Sudoku challenge!\nTime: $time, Mistakes: $mistakes\nChallenge PIN: $pin\nCan you beat me?';
-              Clipboard.setData(ClipboardData(text: txt));
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied!')));
-            }),
+            _gradientBtn('📤 Share Result', onShare),
             const SizedBox(height: 8),
             _outlineBtn('🔄 Replay Same Puzzle', onReplay, colors),
             const SizedBox(height: 8),
@@ -1872,6 +1929,7 @@ class _OnlineResultDialog extends StatelessWidget {
   final OnlineResultType resultType;
   final String myTime, myMistakes, opponentTime, opponentMistakes, opponentName, opponentStatus, difficulty;
   final VoidCallback onHome;
+  final VoidCallback? onShare; // Finished the puzzle (winner / runner-up)
 
   const _OnlineResultDialog({
     required this.colors,
@@ -1884,6 +1942,7 @@ class _OnlineResultDialog extends StatelessWidget {
     required this.opponentStatus,
     required this.difficulty,
     required this.onHome,
+    this.onShare,
   });
 
   @override
@@ -1979,7 +2038,12 @@ class _OnlineResultDialog extends StatelessWidget {
             const SizedBox(height: 6),
             Text('Difficulty: $difficulty', style: TextStyle(fontSize: 11, color: colors.textMuted)),
             const SizedBox(height: 18),
-            _gradientBtn('Back to Home', onHome),
+            if (onShare != null) ...[
+              _gradientBtn('📤 Share Result', onShare!),
+              const SizedBox(height: 8),
+              _outlineBtn('Back to Home', onHome, colors),
+            ] else
+              _gradientBtn('Back to Home', onHome),
           ],
         ),
       ),
@@ -2034,6 +2098,7 @@ class _DailyResultDialog extends StatelessWidget {
   final String time, mistakes, difficulty;
   final int currentStreak, longestStreak;
   final VoidCallback onHome;
+  final VoidCallback? onShare; // Wins only
 
   const _DailyResultDialog({
     required this.colors,
@@ -2044,6 +2109,7 @@ class _DailyResultDialog extends StatelessWidget {
     required this.currentStreak,
     required this.longestStreak,
     required this.onHome,
+    this.onShare,
   });
 
   @override
@@ -2164,7 +2230,12 @@ class _DailyResultDialog extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 18),
-            _gradientBtn('Back to Home', onHome),
+            if (onShare != null) ...[
+              _gradientBtn('📤 Share Result', onShare!),
+              const SizedBox(height: 8),
+              _outlineBtn('Back to Home', onHome, colors),
+            ] else
+              _gradientBtn('Back to Home', onHome),
           ],
         ),
       ),

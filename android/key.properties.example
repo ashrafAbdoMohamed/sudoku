@@ -1,0 +1,10 @@
+# Copy this file to android/key.properties and fill in your real values.
+# key.properties is git-ignored. NEVER commit it, and never paste its contents
+# into chat, an issue, or a screenshot.
+#
+# storeFile must be an absolute path. Keep the .jks OUTSIDE this repository.
+
+storePassword=<the keystore password you chose>
+keyPassword=<the key password you chose>
+keyAlias=upload
+storeFile=/Users/ashrafabdo/keys/sudoku-upload.jks

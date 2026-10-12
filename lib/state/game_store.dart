@@ -152,6 +152,10 @@ class GameStore extends ChangeNotifier {
   bool analyticsConsent = false;
   bool adsConsent = false;
 
+  // Daily challenge reminders (local notifications)
+  bool dailyRemindersEnabled = false;
+  bool reminderPromptShown = false;
+
   // Theme Settings
   String colorThemeId = 'default'; // Color theme ID from ColorThemes
   String boardStyleId = 'classic'; // Board style ID from BoardStyles
@@ -366,6 +370,10 @@ class GameStore extends ChangeNotifier {
         analyticsConsent = j['analyticsConsent'] ?? false;
         adsConsent = j['adsConsent'] ?? false;
 
+        // Reminders
+        dailyRemindersEnabled = j['dailyRemindersEnabled'] ?? false;
+        reminderPromptShown = j['reminderPromptShown'] ?? false;
+
         // Theme Settings
         colorThemeId = j['colorThemeId'] ?? 'default';
         boardStyleId = j['boardStyleId'] ?? 'classic';
@@ -441,6 +449,9 @@ class GameStore extends ChangeNotifier {
       'gdprConsentGiven': gdprConsentGiven,
       'analyticsConsent': analyticsConsent,
       'adsConsent': adsConsent,
+      // Reminders
+      'dailyRemindersEnabled': dailyRemindersEnabled,
+      'reminderPromptShown': reminderPromptShown,
       // Theme Settings
       'colorThemeId': colorThemeId,
       'boardStyleId': boardStyleId,
@@ -477,11 +488,11 @@ class GameStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Set GDPR consent with all options accepted
-  void acceptAllConsent() {
+  /// Set GDPR consent with the options the user left ticked
+  void acceptConsent({required bool analytics, required bool ads}) {
     gdprConsentGiven = true;
-    analyticsConsent = true;
-    adsConsent = true;
+    analyticsConsent = analytics;
+    adsConsent = ads;
     save();
     notifyListeners();
   }
@@ -505,6 +516,18 @@ class GameStore extends ChangeNotifier {
 
   void markTutorialSeen() {
     hasSeenTutorial = true;
+    save();
+    notifyListeners();
+  }
+
+  void setDailyReminders(bool enabled) {
+    dailyRemindersEnabled = enabled;
+    save();
+    notifyListeners();
+  }
+
+  void markReminderPromptShown() {
+    reminderPromptShown = true;
     save();
     notifyListeners();
   }

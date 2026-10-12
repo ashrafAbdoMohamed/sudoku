@@ -14,7 +14,9 @@ class OnlineChallengeService {
   String? _currentRoomPin;
   String? _currentUid;
   StreamSubscription<DatabaseEvent>? _roomSubscription;
-  Timer? _presenceTimer;
+
+  /// True while the host's "delete room if I drop" handler is armed (waiting phase only)
+  bool _roomRemovalArmed = false;
 
   final _roomStateController = StreamController<OnlineRoom?>.broadcast();
   Stream<OnlineRoom?> get roomStateStream => _roomStateController.stream;
@@ -91,8 +93,10 @@ class OnlineChallengeService {
 
       try {
         await roomRef.set(roomData);
+        // If the host drops before anyone joins, the server deletes the room
+        await roomRef.onDisconnect().remove();
+        _roomRemovalArmed = true;
         _startListening();
-        _startPresenceUpdates();
         return pin;
       } catch (e) {
         _currentRoomPin = null;
@@ -148,8 +152,8 @@ class OnlineChallengeService {
 
     try {
       await roomRef.child('players/$_currentUid').set(playerData);
+      await _armPlayerDisconnect();
       _startListening();
-      _startPresenceUpdates();
       return (success: true, error: null, difficulty: room.difficulty, seed: room.seed);
     } catch (e) {
       _currentRoomPin = null;
@@ -161,11 +165,17 @@ class OnlineChallengeService {
   /// Leave the current room
   Future<void> leaveRoom() async {
     _stopListening();
-    _stopPresenceUpdates();
 
     if (_currentRoomPin != null && _currentUid != null) {
       final roomRef = _db.child('rooms/$_currentRoomPin');
       final pin = _currentRoomPin!;
+
+      // We're leaving cleanly - drop pending server-side handlers so they
+      // can't recreate a partial room after it has been deleted
+      try {
+        await roomRef.onDisconnect().cancel();
+      } catch (_) {}
+      _roomRemovalArmed = false;
 
       // Mark player as disconnected
       try {
@@ -183,7 +193,7 @@ class OnlineChallengeService {
           if (room.isWaiting && room.players.length == 1) {
             await roomRef.remove();
           } else {
-            // Check if all players are disconnected or finished - close the room
+            // Check if all players are disconnected or finished - delete the room
             bool allDone = true;
             for (final player in room.players.values) {
               if (player.status != 'disconnected' && player.status != 'finished') {
@@ -192,7 +202,7 @@ class OnlineChallengeService {
               }
             }
             if (allDone) {
-              await roomRef.update({'status': 'closed'});
+              await roomRef.remove();
             }
           }
         }
@@ -338,27 +348,27 @@ class OnlineChallengeService {
     } catch (_) {}
   }
 
-  /// Update presence timestamp
-  void _updatePresence() async {
+  /// Let the server mark this player disconnected if the app dies or loses network.
+  /// Replaces a client heartbeat - the server detects the dropped socket itself.
+  Future<void> _armPlayerDisconnect() async {
     if (_currentRoomPin == null || _currentUid == null) return;
-
-    final now = DateTime.now().millisecondsSinceEpoch;
     try {
-      await _db.child('rooms/$_currentRoomPin/players/$_currentUid/lastSeen').set(now);
+      await _db
+          .child('rooms/$_currentRoomPin/players/$_currentUid')
+          .onDisconnect()
+          .update({'status': 'disconnected'});
     } catch (_) {}
   }
 
-  void _startPresenceUpdates() {
-    _presenceTimer?.cancel();
-    // Update presence every 3 seconds for better responsiveness
-    _presenceTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      _updatePresence();
-    });
-  }
-
-  void _stopPresenceUpdates() {
-    _presenceTimer?.cancel();
-    _presenceTimer = null;
+  /// Once the game starts, swap the host's "delete room" handler for a
+  /// per-player one so a drop mid-game doesn't wipe the opponent's room
+  Future<void> _onGameStarted() async {
+    if (!_roomRemovalArmed || _currentRoomPin == null) return;
+    _roomRemovalArmed = false;
+    try {
+      await _db.child('rooms/$_currentRoomPin').onDisconnect().cancel();
+    } catch (_) {}
+    await _armPlayerDisconnect();
   }
 
   void _startListening() {
@@ -375,19 +385,12 @@ class OnlineChallengeService {
       final data = event.snapshot.value as Map<dynamic, dynamic>;
       final room = OnlineRoom.fromMap(_currentRoomPin!, data);
 
+      if (room.isPlaying) _onGameStarted();
+
       // Emit the room state - let the UI handle display
       // Don't auto-mark players as disconnected here to avoid race conditions
       _roomStateController.add(room);
     });
-  }
-
-  /// Check if a player appears to be disconnected (for UI display only)
-  bool isPlayerInactive(PlayerState player) {
-    if (player.status == 'disconnected' || player.status == 'finished') {
-      return false; // Already has a final status
-    }
-    final now = DateTime.now().millisecondsSinceEpoch;
-    return now - player.lastSeen > 30000; // 30 seconds of inactivity
   }
 
   void _stopListening() {
@@ -398,7 +401,6 @@ class OnlineChallengeService {
   /// Clean up resources
   void dispose() {
     _stopListening();
-    _stopPresenceUpdates();
     _roomStateController.close();
   }
 }

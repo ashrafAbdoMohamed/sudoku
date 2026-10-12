@@ -1,1 +1,50 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"sudoku-96650","appId":"1:758236903398:android:19f4b2a49203d7d5ec8827","fileOutput":"android/app/google-services.json"}},"ios":{"default":{"projectId":"sudoku-96650","appId":"1:758236903398:ios:7fc739391a8c4d5cec8827","uploadDebugSymbols":false,"fileOutput":"ios/Runner/GoogleService-Info.plist"}},"macos":{"default":{"projectId":"sudoku-96650","appId":"1:758236903398:ios:7fc739391a8c4d5cec8827","uploadDebugSymbols":false,"fileOutput":"macos/Runner/GoogleService-Info.plist"}},"dart":{"lib/firebase_options.dart":{"projectId":"sudoku-96650","configurations":{"android":"1:758236903398:android:19f4b2a49203d7d5ec8827","ios":"1:758236903398:ios:7fc739391a8c4d5cec8827","macos":"1:758236903398:ios:7fc739391a8c4d5cec8827","web":"1:758236903398:web:4c8c8caf53adf438ec8827","windows":"1:758236903398:web:69aecd637211b1c6ec8827"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "sudoku-96650",
+          "appId": "1:758236903398:android:19f4b2a49203d7d5ec8827",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "sudoku-96650",
+          "appId": "1:758236903398:ios:7fc739391a8c4d5cec8827",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "macos": {
+        "default": {
+          "projectId": "sudoku-96650",
+          "appId": "1:758236903398:ios:7fc739391a8c4d5cec8827",
+          "uploadDebugSymbols": false,
+          "fileOutput": "macos/Runner/GoogleService-Info.plist"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "sudoku-96650",
+          "configurations": {
+            "android": "1:758236903398:android:19f4b2a49203d7d5ec8827",
+            "ios": "1:758236903398:ios:7fc739391a8c4d5cec8827",
+            "macos": "1:758236903398:ios:7fc739391a8c4d5cec8827",
+            "web": "1:758236903398:web:4c8c8caf53adf438ec8827",
+            "windows": "1:758236903398:web:69aecd637211b1c6ec8827"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "legal",
+    "cleanUrls": true,
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ]
+  }
+}

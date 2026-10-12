@@ -24,6 +24,15 @@ class DailyChallenge {
   /// Get today's seed
   static int get todaySeed => seedFromDate(todayString);
 
+  /// Sequential puzzle number for sharing ("Daily #42"), counted from launch
+  static int dayNumber(String dateString) {
+    final date = DateTime.tryParse(dateString);
+    if (date == null) return 1;
+    return DateTime.utc(date.year, date.month, date.day).difference(DateTime.utc(2026, 9, 1)).inDays + 1;
+  }
+
+  static int get todayNumber => dayNumber(todayString);
+
   /// Get the difficulty for a given date
   /// Rotating schedule: Easy -> Medium -> Hard -> Expert -> repeat
   static String difficultyFromDate(String dateString) {
