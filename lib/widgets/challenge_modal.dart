@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../theme/app_theme.dart';
 import '../utils/challenge_utils.dart';
@@ -10,6 +9,9 @@ import '../services/online_challenge_service.dart';
 import '../services/share_service.dart';
 import '../services/analytics_service.dart';
 import '../models/online_room.dart';
+import '../game/cartoon_dialog.dart';
+import '../game/ui_kit.dart';
+import '../services/sound_service.dart';
 
 class ChallengeModal extends StatefulWidget {
   final AppColorScheme colors;
@@ -59,6 +61,9 @@ class _ChallengeModalState extends State<ChallengeModal> {
     if (widget.initialPin != null && widget.initialPin!.isNotEmpty) {
       _isCreateTab = false;
       _pinController.text = widget.initialPin!;
+    } else {
+      // The home button promises a live race, so start there.
+      _isOnlineMode = isFirebaseAvailable;
     }
   }
 
@@ -188,387 +193,258 @@ class _ChallengeModalState extends State<ChallengeModal> {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: c.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('⚔️', style: TextStyle(fontSize: 50)),
-            const SizedBox(height: 8),
-            Text(
-              'Play with a Friend',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: c.text),
-            ),
-            const SizedBox(height: 16),
-            // Online toggle (only show if Firebase is available)
-            if (isFirebaseAvailable) ...[
-              _buildOnlineToggle(),
-              const SizedBox(height: 12),
-            ],
-            // Tabs
-            Container(
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(color: c.surface2, borderRadius: BorderRadius.circular(10)),
-              child: Row(children: [_tab('Host Game', _isCreateTab), _tab('Enter Code', !_isCreateTab)]),
-            ),
-            const SizedBox(height: 18),
-            if (_isCreateTab) _buildCreate() else _buildJoin(),
-            const SizedBox(height: 8),
-            GestureDetector(
-              onTap: () => Navigator.pop(context),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 13),
-                decoration: BoxDecoration(
-                  color: c.surface,
-                  border: Border.all(color: c.border, width: 1.5),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  'Cancel',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: c.text),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOnlineToggle() {
-    return GestureDetector(
-      onTap: () {
-        if (_generated || _isWaitingForOpponent) return;
-        setState(() => _isOnlineMode = !_isOnlineMode);
+    return CartoonPanel(
+      title: 'PLAY A FRIEND',
+      color: const Color(0xFF1FB5A8),
+      onClose: () {
+        if (_isWaitingForOpponent) _cancelOnlineRoom();
+        Navigator.pop(context);
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: _isOnlineMode ? c.primary.withValues(alpha: 0.1) : c.surface2,
-          border: Border.all(
-            color: _isOnlineMode ? c.primary : c.border,
-            width: 1.5,
-          ),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: _isOnlineMode ? c.primary : c.surface,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                _isOnlineMode ? '🌐' : '📱',
-                style: const TextStyle(fontSize: 16),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _isOnlineMode ? 'Online Mode' : 'Offline Mode',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: _isOnlineMode ? c.primary : c.text,
-                    ),
-                  ),
-                  Text(
-                    _isOnlineMode
-                        ? 'Real-time multiplayer with live progress'
-                        : 'Share PIN to compare scores later',
-                    style: TextStyle(fontSize: 10, color: c.textMuted),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              width: 44,
-              height: 24,
-              decoration: BoxDecoration(
-                color: _isOnlineMode ? c.primary : c.surface2,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              padding: const EdgeInsets.all(2),
-              child: AnimatedAlign(
-                duration: const Duration(milliseconds: 200),
-                alignment: _isOnlineMode ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.2),
-                        blurRadius: 4,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+      scrollable: true,
+      width: 400,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (isFirebaseAvailable) ...[
+            _modeCards(),
+            const SizedBox(height: 12),
           ],
-        ),
+          _tabs(),
+          const SizedBox(height: 14),
+          if (_isCreateTab) _buildCreate() else _buildJoin(),
+        ],
       ),
     );
   }
 
-  Widget _tab(String label, bool active) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          if (_isWaitingForOpponent) return;
-          setState(() => _isCreateTab = label == 'Host Game');
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 9),
-          decoration: BoxDecoration(
-            color: active ? c.surface : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: active ? [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 8)] : null,
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: active ? c.primary : c.textMuted),
+  /// Live race vs. share-a-code: two big cards, the chosen one lit up.
+  Widget _modeCards() {
+    Widget card(bool online, String emoji, String title, String text, Color color) {
+      final active = _isOnlineMode == online;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () {
+            if (_generated || _isWaitingForOpponent || active) return;
+            SoundService().playTap();
+            setState(() => _isOnlineMode = online);
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.fromLTRB(8, 10, 8, 10),
+            decoration: BoxDecoration(
+              color: active ? color : Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: active ? Colors.white : const Color(0xFFF0DFC0), width: 3),
+              boxShadow: [BoxShadow(color: active ? Color.lerp(color, Colors.black, 0.35)! : const Color(0xFFF0DFC0), offset: const Offset(0, 4))],
+            ),
+            child: Column(
+              children: [
+                Text(emoji, style: const TextStyle(fontSize: 28)),
+                const SizedBox(height: 2),
+                FittedBox(
+                  child: active
+                      ? OutlinedText(title, size: 17, stroke: Color.lerp(color, Colors.black, 0.45)!)
+                      : Text(title, style: const TextStyle(fontFamily: kTitleFont, fontSize: 17, color: Color(0xFF8A7A9E))),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  text,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: kBodyFont,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                    height: 1.15,
+                    color: active ? Colors.white : const Color(0xFF8A7A9E),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
+      );
+    }
+
+    return Row(
+      children: [
+        card(true, '⚡', 'LIVE RACE', 'Play at the same time, see their progress', const Color(0xFFFF8A3D)),
+        const SizedBox(width: 10),
+        card(false, '🔢', 'SHARE A CODE', 'Same puzzle, compare times later', const Color(0xFF8E5BEA)),
+      ],
+    );
+  }
+
+  Widget _tabs() {
+    Widget tab(String label, bool create) {
+      final active = _isCreateTab == create;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () {
+            if (_isWaitingForOpponent || active) return;
+            SoundService().playTap();
+            setState(() => _isCreateTab = create);
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            height: 40,
+            decoration: BoxDecoration(
+              color: active ? const Color(0xFF1FB5A8) : Colors.transparent,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: active ? const [BoxShadow(color: Color(0xFF0E7068), offset: Offset(0, 3))] : null,
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              label,
+              style: TextStyle(fontFamily: kTitleFont, fontSize: 15, color: active ? Colors.white : const Color(0xFF8A7A9E)),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(color: const Color(0xFFF3E4C8), borderRadius: BorderRadius.circular(23)),
+      child: Row(children: [tab('I HOST', true), tab('I HAVE A CODE', false)]),
     );
   }
 
   Widget _buildCreate() {
     if (!_generated) {
       return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'Pick a difficulty level, then share the code with your friend',
-            style: TextStyle(fontSize: 13, color: c.textMuted),
-            textAlign: TextAlign.center,
-          ),
+          const PanelText('Pick a difficulty, then send the code to your friend.', size: 15),
           const SizedBox(height: 12),
           _diffBar(),
-          const SizedBox(height: 16),
-          _gradBtn('Create Game Code →', _generate),
+          const SizedBox(height: 14),
+          CartoonButton(label: 'GET A CODE', onTap: _generate),
         ],
       );
     }
 
-    // Online mode - waiting for opponent
     if (_isOnlineMode && _isWaitingForOpponent) {
       return _buildOnlineWaiting();
     }
 
-    // Offline mode or online game started
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          _isOnlineMode
-              ? 'Share this code with your friend to play together!'
-              : 'Your friend can scan the QR code or type the code below',
-          style: TextStyle(fontSize: 13, color: c.textMuted),
-          textAlign: TextAlign.center,
+        PanelText(
+          _isOnlineMode ? 'Send this code to your friend to play together!' : 'Your friend can scan this or type the code',
+          size: 15,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         if (!_isOnlineMode) ...[
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
-            child: QrImageView(data: 'sudoku://challenge?pin=$_pin', version: QrVersions.auto, size: 160),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(child: Divider(color: c.border)),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Text('or enter code', style: TextStyle(fontSize: 11, color: c.textMuted)),
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFF0DFC0), width: 2),
               ),
-              Expanded(child: Divider(color: c.border)),
-            ],
+              child: QrImageView(data: 'sudoku://challenge?pin=$_pin', version: QrVersions.auto, size: 150),
+            ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
         ],
-        Text(
-          ChallengeUtils.formatPin(_pin),
-          style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: c.primary, letterSpacing: 8),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Difficulty: ${_cDiff[0].toUpperCase()}${_cDiff.substring(1)}',
-          style: TextStyle(fontSize: 11, color: c.textMuted),
-        ),
+        _codeBox(),
         const SizedBox(height: 14),
         Row(
           children: [
-            // Share button
             Expanded(
-              child: GestureDetector(
-                onTap: () {
-                  ShareService().shareChallenge(pin: _pin, difficulty: _cDiff);
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  decoration: BoxDecoration(
-                    color: c.surface,
-                    border: Border.all(color: c.primary, width: 1.5),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    '📤 Share',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: c.primary),
-                  ),
-                ),
+              child: CartoonButton(
+                label: 'SHARE',
+                color: const Color(0xFF4D7CFE),
+                icon: const Icon(Icons.share_rounded, color: Colors.white, size: 20),
+                onTap: () => ShareService().shareChallenge(pin: _pin, difficulty: _cDiff),
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
-              flex: 2,
-              child: _gradBtn('Play Now →', () {
-                Navigator.pop(context);
-                widget.onStartChallenge(_cDiff, _seed, _pin);
-              }),
+              child: CartoonButton(
+                label: 'PLAY',
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onStartChallenge(_cDiff, _seed, _pin);
+                },
+              ),
             ),
           ],
         ),
       ],
+    );
+  }
+
+  /// The big game code with its difficulty.
+  Widget _codeBox() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFF0DFC0), width: 2),
+      ),
+      child: Column(
+        children: [
+          const Text('GAME CODE', style: TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 12, letterSpacing: 1, color: Color(0xFF8A7A9E))),
+          FittedBox(
+            child: Text(
+              ChallengeUtils.formatPin(_pin),
+              style: const TextStyle(fontFamily: kTitleFont, fontSize: 36, letterSpacing: 6, color: Color(0xFF8E5BEA)),
+            ),
+          ),
+          Text(
+            '${_cDiff[0].toUpperCase()}${_cDiff.substring(1)} puzzle',
+            style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF8A7A9E)),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildOnlineWaiting() {
     final playerCount = _currentRoom?.players.length ?? 1;
-
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Animated waiting indicator
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: c.primary.withValues(alpha: 0.1),
-            shape: BoxShape.circle,
-          ),
+        const Center(
           child: SizedBox(
-            width: 50,
-            height: 50,
-            child: CircularProgressIndicator(
-              strokeWidth: 3,
-              valueColor: AlwaysStoppedAnimation<Color>(c.primary),
-            ),
+            width: 56,
+            height: 56,
+            child: CircularProgressIndicator(strokeWidth: 6, color: Color(0xFFFF8A3D), backgroundColor: Color(0xFFFFE3CC)),
           ),
         ),
-        const SizedBox(height: 16),
-        Text(
-          'Waiting for opponent...',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: c.text),
+        const SizedBox(height: 12),
+        const Center(child: OutlinedText('WAITING...', size: 24, color: Color(0xFFFFC23D), stroke: Color(0xFF9A4A00))),
+        PanelText('$playerCount/2 players in the room', size: 14),
+        const SizedBox(height: 12),
+        _codeBox(),
+        const SizedBox(height: 14),
+        CartoonButton(
+          label: 'SHARE CODE',
+          color: const Color(0xFF4D7CFE),
+          icon: const Icon(Icons.share_rounded, color: Colors.white, size: 20),
+          onTap: () => ShareService().shareChallenge(pin: _pin, difficulty: _cDiff),
         ),
-        const SizedBox(height: 6),
-        Text(
-          '$playerCount/2 players in room',
-          style: TextStyle(fontSize: 12, color: c.textMuted),
-        ),
-        const SizedBox(height: 20),
-        // PIN display
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-          decoration: BoxDecoration(
-            color: c.surface2,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Column(
-            children: [
-              Text(
-                'GAME CODE',
-                style: TextStyle(fontSize: 10, color: c.textMuted, letterSpacing: 1),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                ChallengeUtils.formatPin(_pin),
-                style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: c.primary, letterSpacing: 8),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Difficulty: ${_cDiff[0].toUpperCase()}${_cDiff.substring(1)}',
-                style: TextStyle(fontSize: 11, color: c.textMuted),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Share and Cancel buttons
-        Row(
-          children: [
-            Expanded(
-              child: GestureDetector(
-                onTap: () {
-                  ShareService().shareChallenge(pin: _pin, difficulty: _cDiff);
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)]),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Text(
-                    '📤 Share',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: GestureDetector(
-                onTap: _cancelOnlineRoom,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  decoration: BoxDecoration(
-                    color: c.surface,
-                    border: Border.all(color: c.errColor, width: 1.5),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    'Cancel',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: c.errColor),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+        const SizedBox(height: 4),
+        CartoonButton(label: 'CANCEL', color: const Color(0xFFF25A6B), height: 48, size: 18, onTap: _cancelOnlineRoom),
       ],
     );
   }
 
   Widget _buildJoin() {
-    // Online mode - waiting after joining
     if (_isOnlineMode && _isWaitingForOpponent) {
       return _buildOnlineJoinWaiting();
     }
-
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          _isOnlineMode
-              ? 'Enter the 6-digit code to join the live game'
-              : 'Enter the 6-digit code your friend shared with you',
-          style: TextStyle(fontSize: 13, color: c.textMuted),
-          textAlign: TextAlign.center,
+        PanelText(
+          _isOnlineMode ? 'Type the 6-digit code to join the live race' : 'Type the 6-digit code your friend sent you',
+          size: 15,
         ),
         const SizedBox(height: 12),
         TextField(
@@ -577,172 +453,88 @@ class _ChallengeModalState extends State<ChallengeModal> {
           maxLength: 6,
           textAlign: TextAlign.center,
           enabled: !_isJoining,
-          style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: c.text, letterSpacing: 8),
+          style: const TextStyle(fontFamily: kTitleFont, fontSize: 32, letterSpacing: 8, color: Color(0xFF8E5BEA)),
           decoration: InputDecoration(
             counterText: '',
             filled: true,
-            fillColor: c.surface2,
-            hintText: '123456',
-            hintStyle: TextStyle(fontSize: 18, color: c.textMuted, letterSpacing: 3),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: c.border, width: 2),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: c.border, width: 2),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: c.primary, width: 2),
-            ),
-            contentPadding: const EdgeInsets.symmetric(vertical: 13),
+            fillColor: Colors.white,
+            hintText: '000000',
+            hintStyle: const TextStyle(fontFamily: kTitleFont, fontSize: 32, letterSpacing: 8, color: Color(0xFFE6DCCB)),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: const BorderSide(color: Color(0xFFF0DFC0), width: 2)),
+            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: const BorderSide(color: Color(0xFFF0DFC0), width: 2)),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: const BorderSide(color: Color(0xFF8E5BEA), width: 3)),
+            contentPadding: const EdgeInsets.symmetric(vertical: 12),
           ),
           onSubmitted: (_) => _join(),
         ),
         if (_joinError.isNotEmpty) ...[
           const SizedBox(height: 8),
-          Text(_joinError, style: TextStyle(fontSize: 12, color: c.errColor), textAlign: TextAlign.center),
+          Text(
+            _joinError,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFFF25A6B)),
+          ),
         ],
-        const SizedBox(height: 10),
-        _isJoining
-            ? Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 13),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [c.primary.withValues(alpha: 0.5), const Color(0xFFA855F7).withValues(alpha: 0.5)]),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                alignment: Alignment.center,
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
-                ),
-              )
-            : _gradBtn('Start Playing →', _join),
+        const SizedBox(height: 12),
+        CartoonButton(label: _isJoining ? 'JOINING...' : 'START PLAYING', onTap: _isJoining ? null : _join),
       ],
     );
   }
 
   Widget _buildOnlineJoinWaiting() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: const Color(0xFF10B981).withValues(alpha: 0.1),
-            shape: BoxShape.circle,
-          ),
-          child: const Text('✓', style: TextStyle(fontSize: 40, color: Color(0xFF10B981))),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          'Joined! Starting soon...',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: c.text),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Waiting for host to start the game',
-          style: TextStyle(fontSize: 12, color: c.textMuted),
-        ),
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: c.surface2,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _joinStat(ChallengeUtils.formatPin(_pin), 'Code'),
-              _joinStat(_cDiff[0].toUpperCase() + _cDiff.substring(1), 'Difficulty'),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        GestureDetector(
-          onTap: _cancelOnlineRoom,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 13),
-            decoration: BoxDecoration(
-              color: c.surface,
-              border: Border.all(color: c.border, width: 1.5),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              'Leave Room',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: c.text),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _joinStat(String value, String label) {
-    return Column(
-      children: [
-        Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: c.primary)),
-        const SizedBox(height: 2),
-        Text(label, style: TextStyle(fontSize: 10, color: c.textMuted)),
+        const Center(child: Icon(Icons.check_circle_rounded, color: Color(0xFF3FB26B), size: 64)),
+        const Center(child: OutlinedText('YOU\'RE IN!', size: 26, color: Color(0xFF7CE08A), stroke: Color(0xFF1F6E3F))),
+        const PanelText('Waiting for your friend to start the race', size: 14),
+        const SizedBox(height: 12),
+        _codeBox(),
+        const SizedBox(height: 14),
+        CartoonButton.secondary(label: 'LEAVE ROOM', onTap: _cancelOnlineRoom),
       ],
     );
   }
 
   Widget _diffBar() {
-    const diffs = ['easy', 'medium', 'hard', 'expert'];
+    const diffs = [
+      ('easy', 'EASY', Color(0xFF3FB26B)),
+      ('medium', 'MEDIUM', Color(0xFFFF9F43)),
+      ('hard', 'HARD', Color(0xFFF25A6B)),
+      ('expert', 'EXPERT', Color(0xFF8E5BEA)),
+    ];
     return Row(
-      children: diffs.map((d) {
-        final active = d == _cDiff;
-        return Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 3),
-            child: GestureDetector(
-              onTap: () => setState(() => _cDiff = d),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 9),
-                decoration: BoxDecoration(
-                  color: active ? c.primary : c.surface,
-                  border: Border.all(color: active ? c.primary : c.border, width: 1.5),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  d[0].toUpperCase() + d.substring(1),
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: active ? Colors.white : c.textMuted,
+      children: [
+        for (final (id, label, color) in diffs)
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: GestureDetector(
+                onTap: () {
+                  SoundService().playTap();
+                  setState(() => _cDiff = id);
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: id == _cDiff ? color : Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: id == _cDiff ? Colors.white : color, width: 2.5),
+                    boxShadow: [BoxShadow(color: id == _cDiff ? Color.lerp(color, Colors.black, 0.35)! : color.withValues(alpha: 0.3), offset: const Offset(0, 3))],
+                  ),
+                  alignment: Alignment.center,
+                  child: FittedBox(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(label, style: TextStyle(fontFamily: kTitleFont, fontSize: 14, color: id == _cDiff ? Colors.white : color)),
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _gradBtn(String text, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 13),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)]),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          text,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white),
-        ),
-      ),
+      ],
     );
   }
 }

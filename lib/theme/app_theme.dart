@@ -2,6 +2,29 @@ import 'package:flutter/material.dart';
 import 'board_themes.dart';
 
 class AppColors {
+  /// The cartoon look's palette: cream panels, purple accents, dark ink.
+  /// Every popup and screen uses this now.
+  static const cartoon = AppColorScheme(
+    bg: Color(0xFFFFF8EA),
+    surface: Color(0xFFFFFFFF),
+    surface2: Color(0xFFFFF0D9),
+    border: Color(0xFFF0DFC0),
+    borderBox: Color(0xFFFF9F43),
+    text: Color(0xFF3D2B7A),
+    textMuted: Color(0xFF8A7A9E),
+    primary: Color(0xFF8E5BEA),
+    primaryLight: Color(0xFFEDE3FF),
+    selBg: Color(0xFFFFC870),
+    hlBg: Color(0xFFFFF0CF),
+    sameBg: Color(0xFFFFDE9E),
+    errColor: Color(0xFFF25A6B),
+    errBg: Color(0xFFFFD6DB),
+    givenColor: Color(0xFF2A3A6E),
+    userColor: Color(0xFF8E3FD6),
+    noteColor: Color(0xFF8A7A9E),
+    hintColor: Color(0xFF3FB26B),
+  );
+
   // Light theme (default)
   static const light = AppColorScheme(
     bg: Color(0xFFF0F4FF),

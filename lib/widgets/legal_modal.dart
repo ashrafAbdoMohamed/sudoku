@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import '../game/cartoon_dialog.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 
@@ -36,64 +36,27 @@ class LegalModal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: c.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 40),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 500, maxHeight: 600),
+    final height = (MediaQuery.sizeOf(context).height * 0.7).clamp(360.0, 600.0);
+    return CartoonPanel(
+      title: _title.toUpperCase(),
+      color: const Color(0xFF7C8DB5),
+      icon: Text(_icon, style: const TextStyle(fontSize: 24)),
+      onClose: () => Navigator.pop(context),
+      width: 460,
+      padding: EdgeInsets.zero,
+      child: SizedBox(
+        height: height,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            _buildHeader(context),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                 child: _buildContent(),
               ),
             ),
             _buildFooter(context),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              Text(_icon, style: const TextStyle(fontSize: 28)),
-              const SizedBox(width: 12),
-              Text(
-                _title,
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                  color: c.text,
-                ),
-              ),
-            ],
-          ),
-          GestureDetector(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              Navigator.pop(context);
-            },
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: c.surface2,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.close, size: 20, color: c.textMuted),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -146,82 +109,28 @@ class LegalModal extends StatelessWidget {
   }
 
   Widget _buildFooter(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: c.border)),
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
       child: Row(
         children: [
           Expanded(
-            child: GestureDetector(
+            child: CartoonButton.secondary(
+              label: 'VIEW ONLINE',
+              icon: const Icon(Icons.open_in_new_rounded, color: Colors.white, size: 18),
               onTap: () async {
-                HapticFeedback.lightImpact();
                 final uri = Uri.parse(_webUrl);
                 if (await canLaunchUrl(uri)) {
                   await launchUrl(uri, mode: LaunchMode.externalApplication);
                 }
               },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: c.surface2,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: c.border),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.open_in_new, size: 16, color: c.textMuted),
-                    const SizedBox(width: 8),
-                    Text(
-                      'View Online',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: c.text,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: GestureDetector(
-              onTap: () {
-                HapticFeedback.mediumImpact();
-                Navigator.pop(context);
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)],
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                alignment: Alignment.center,
-                child: const Text(
-                  'Got It',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
+          const SizedBox(width: 10),
+          Expanded(child: CartoonButton(label: 'GOT IT', height: 50, size: 19, onTap: () => Navigator.pop(context))),
         ],
       ),
     );
   }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Privacy Policy Content
-  // ─────────────────────────────────────────────────────────────────────────────
 
   static const String _privacyPolicyContent = '''
 # Privacy Policy

@@ -1,16 +1,23 @@
 import 'dart:async';
+import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
-import '../theme/board_themes.dart';
+import '../game/cartoon_dialog.dart';
+import '../game/free_coins.dart';
+import '../game/fx.dart';
+import '../game/game_backdrop.dart';
+import '../game/rank_up.dart';
+import '../game/ui_kit.dart';
+import '../game/win_overlay.dart';
+import '../models/progression.dart';
 import '../state/game_store.dart';
 import '../state/game_state.dart';
-import '../widgets/confetti_overlay.dart';
 import '../widgets/opponent_progress.dart';
 import '../widgets/achievements_modal.dart';
 import '../widgets/coach_marks_overlay.dart';
-import '../widgets/theme_picker.dart';
 import '../services/online_challenge_service.dart';
 import '../services/analytics_service.dart';
 import '../services/share_service.dart';
@@ -69,6 +76,21 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   late AnimationController _selectionController;
   late Animation<double> _selectionAnimation;
 
+  // Pulse on the cell a Hint points at
+  late final AnimationController _glowController = AnimationController(
+    duration: const Duration(milliseconds: 700),
+    vsync: this,
+  )..repeat(reverse: true);
+
+  // What this game's result paid (set once when the game ends)
+  bool _endHandled = false;
+  int _earnedStars = 0;
+  int _earnedCoins = 0;
+  bool _chestReady = false;
+
+  // Set by the debug-only shortcut: such a game never reaches leaderboards.
+  bool _debugAssisted = false;
+
   // Online challenge state
   final OnlineChallengeService _onlineService = OnlineChallengeService();
   StreamSubscription<OnlineRoom?>? _roomSubscription;
@@ -80,17 +102,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   // Achievement notification state
   final List<Achievement> _pendingAchievements = [];
+  final List<Achievement> _endAchievements = [];
   Achievement? _showingAchievement;
   Timer? _achievementDismissTimer;
 
   GameState get game => widget.gameState ?? widget.game!;
   GameStore get store => widget.store;
   AppColorScheme get colors {
-    final theme = ColorThemes.fromId(store.colorThemeId);
-    return AppColors.fromColorTheme(theme, isDark: store.isDark);
+    return AppColors.cartoon;
   }
 
-  BoardStyle get boardStyle => BoardStyles.fromId(store.boardStyleId);
   bool get isOnline => widget.isOnlineChallenge;
   bool get isDaily => widget.isDailyChallenge;
   bool get isTournament => widget.tournamentId != null;
@@ -111,8 +132,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
     return count;
   }
-
-  double get _progress => _filledCells / 81;
 
   @override
   void initState() {
@@ -211,7 +230,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       marks.add(CoachMark(
         icon: '🔢',
         title: 'Number Pad',
-        description: 'After selecting a cell, tap a number to fill it in. The count shows how many of each number remain.',
+        description: 'After selecting a cell, tap a number to fill it in. Each key shows how many of that number are left to place.',
         targetRect: numpadRect,
         position: TooltipPosition.above,
         spotlightPadding: 4,
@@ -222,7 +241,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       marks.add(CoachMark(
         icon: '⏱️',
         title: 'Game Stats',
-        description: 'Track your time and mistakes. Five mistakes and it\'s game over! Tap the pause button to take a break.',
+        description: 'Your timer and hearts. Each mistake costs a heart; lose all five and the game is over. Tap pause for a break.',
         targetRect: statsRect,
         position: TooltipPosition.below,
       ));
@@ -242,7 +261,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       marks.add(CoachMark(
         icon: '💡',
         title: 'Need Help?',
-        description: 'Stuck? Use hints sparingly - they\'ll reveal a correct number but use them wisely!',
+        description: 'Hint (25 coins) lights up the easiest cell to solve next. Magic (60 coins) fills in the selected cell for you.',
         targetRect: hintRect,
         position: TooltipPosition.above,
       ));
@@ -264,6 +283,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   void _onAchievementUnlocked(Achievement achievement) {
     AnalyticsService().logAchievementUnlocked(achievement.id);
+    // Awards earned by finishing the puzzle are shown in the result popup.
+    if (game.gameOver) {
+      _endAchievements.add(achievement);
+      return;
+    }
     _pendingAchievements.add(achievement);
     _showNextAchievement();
   }
@@ -405,34 +429,22 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final name = _opponent?.name ?? 'Opponent';
 
     if (time != null) {
-      // Opponent finished - show alert dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => AlertDialog(
-          backgroundColor: colors.surface,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Row(
+      showCartoonDialog<void>(
+        context,
+        dismissible: false,
+        builder: (context) => CartoonPanel(
+          title: 'FINISHED FIRST',
+          color: const Color(0xFFFF9F43),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('🏁 ', style: TextStyle(fontSize: 24)),
-              Expanded(
-                child: Text(
-                  '$name Finished First!',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: colors.text),
-                ),
-              ),
+              const GameIcon(GameIcons.trophy, size: 64),
+              const SizedBox(height: 8),
+              PanelText('$name solved it in ${_formatTime(time)}.\nKeep going and finish as runner-up!'),
+              const SizedBox(height: 18),
+              CartoonButton(label: 'KEEP GOING', onTap: () => Navigator.pop(context)),
             ],
           ),
-          content: Text(
-            '$name completed the puzzle in ${_formatTime(time)}.\n\nKeep going - finish to become the runner-up!',
-            style: TextStyle(fontSize: 14, color: colors.textMuted),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('OK', style: TextStyle(color: colors.primary, fontWeight: FontWeight.w700)),
-            ),
-          ],
         ),
       );
     } else {
@@ -451,41 +463,30 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (!mounted) return;
     final name = _opponent?.name ?? 'Opponent';
 
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (_) => AlertDialog(
-        backgroundColor: colors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
+    showCartoonDialog<void>(
+      context,
+      builder: (context) => CartoonPanel(
+        title: 'OPPONENT LEFT',
+        color: const Color(0xFF7C8DB5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('📡 ', style: TextStyle(fontSize: 24)),
-            Expanded(
-              child: Text(
-                '$name Disconnected',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: colors.text),
-              ),
+            const Icon(Icons.wifi_off_rounded, size: 60, color: Color(0xFF7C8DB5)),
+            const SizedBox(height: 8),
+            PanelText('$name left the game or lost connection.\nYou can finish the puzzle or go home.'),
+            const SizedBox(height: 18),
+            CartoonButton(label: 'KEEP PLAYING', onTap: () => Navigator.pop(context)),
+            const SizedBox(height: 4),
+            CartoonButton.secondary(
+              label: 'HOME',
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pop(this.context);
+                _onlineService.leaveRoom();
+              },
             ),
           ],
         ),
-        content: Text(
-          '$name has left the game or lost connection.\n\nYou can continue playing or go back home.',
-          style: TextStyle(fontSize: 14, color: colors.textMuted),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context); // Close dialog
-              Navigator.pop(context); // Go home
-              _onlineService.leaveRoom();
-            },
-            child: Text('Go Home', style: TextStyle(color: colors.textMuted)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Keep Playing', style: TextStyle(color: colors.primary, fontWeight: FontWeight.w700)),
-          ),
-        ],
       ),
     );
   }
@@ -511,7 +512,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       setState(() {});
       return;
     }
+    if (game.gameOver && _endHandled) {
+      setState(() {});
+      return;
+    }
     if (game.status == GameStatus.won) {
+      _endHandled = true;
+      _endAchievements.clear();
       _timer?.cancel();
       _logGameEnd(won: true);
       // Daily challenges record their own stats via callbacks
@@ -537,7 +544,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         difficulty: game.difficulty,
         time: game.seconds,
         mistakes: game.mistakes,
-        hintsUsed: game.hintCells.length,
+        hintsUsed: game.hintCells.length + game.hintsUsed,
         isChallenge: game.challengeMode,
         isOnline: isOnline,
         isDaily: isDaily,
@@ -545,7 +552,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       );
 
       // Submit to global leaderboard (not for online challenges)
-      if (!isOnline && store.deviceId != null) {
+      if (!isOnline && !_debugAssisted && store.deviceId != null) {
         _leaderboardService.submitScore(
           difficulty: game.difficulty,
           name: store.name,
@@ -566,6 +573,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         }
       }
 
+      // Stars and coins: the Journey pays per level, everything else per win.
+      _earnedStars = starsFor(mistakes: game.mistakes, usedHelp: game.usedHelp);
+      final level = game.journeyLevel;
+      if (level != null) {
+        final result = store.completeJourneyLevel(level, _earnedStars);
+        _earnedCoins = result.coins;
+        _chestReady = result.chestReady;
+      } else {
+        _earnedCoins = store.rewardWin(game.difficulty, _earnedStars);
+        _chestReady = false;
+      }
+
       _sound.playWin();
       setState(() => _showConfetti = true);
 
@@ -581,6 +600,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         if (mounted) _showWinDialog();
       });
     } else if (game.status == GameStatus.lost) {
+      _endHandled = true;
       _timer?.cancel();
       _logGameEnd(won: false);
       // Daily challenges record their own stats via callbacks
@@ -621,7 +641,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       mode: game.mode,
       seconds: game.seconds,
       mistakes: game.mistakes,
-      hints: game.hintCells.length,
+      hints: game.hintCells.length + game.hintsUsed,
     );
   }
 
@@ -630,6 +650,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _timer?.cancel();
     _focusNode.dispose();
     _selectionController.dispose();
+    _glowController.dispose();
     game.removeListener(_onGameChange);
     _roomSubscription?.cancel();
 
@@ -662,29 +683,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   Future<bool> _onWillPop() async {
     // If online and game not over, confirm before leaving
     if (isOnline && !game.gameOver) {
-      final shouldLeave = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
-          backgroundColor: colors.surface,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text('Leave Game?', style: TextStyle(fontWeight: FontWeight.w800, color: colors.text)),
-          content: Text(
-            'You are in an online match. If you leave, your opponent will be notified.',
-            style: TextStyle(color: colors.textMuted),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text('Stay', style: TextStyle(color: colors.primary, fontWeight: FontWeight.w700)),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text('Leave', style: TextStyle(color: colors.errColor)),
-            ),
-          ],
-        ),
+      final shouldLeave = await showConfirm(
+        context,
+        title: 'LEAVE RACE?',
+        message: 'You are in a live race. If you leave, your opponent wins.',
+        cancel: 'STAY',
+        confirm: 'LEAVE',
       );
-      return shouldLeave ?? false;
+      return shouldLeave;
     }
     return true;
   }
@@ -692,7 +698,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   void _newGame() async {
     final seed = game.challengeMode ? game.challengeSeed : null;
     final pin = game.challengeMode ? game.challengePin : null;
-    setState(() => _showConfetti = false);
+    setState(() {
+      _showConfetti = false;
+      _endHandled = false;
+      _debugAssisted = false;
+    });
     _timer?.cancel();
     final started = game.newGame(game.difficulty, seed: seed, pin: pin);
     AnalyticsService().logGameStart(difficulty: game.difficulty, mode: game.mode);
@@ -703,9 +713,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // Handle keyboard input
   void _handleKeyEvent(KeyEvent event) {
     if (event is! KeyDownEvent) return;
-    if (game.paused || game.gameOver || game.isGenerating) return;
-
     final key = event.logicalKey;
+    if (game.paused && key == LogicalKeyboardKey.space) {
+      _togglePause();
+      return;
+    }
+    if (game.paused || game.gameOver || game.isGenerating) return;
 
     // Number keys 1-9
     if (key.keyId >= LogicalKeyboardKey.digit1.keyId &&
@@ -760,13 +773,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     // H for hint
     if (key == LogicalKeyboardKey.keyH) {
-      _sound.playHint();
-      game.giveHint();
+      _useHint();
     }
 
     // Space to pause
     if (key == LogicalKeyboardKey.space) {
-      game.togglePause();
+      _togglePause();
     }
   }
 
@@ -786,9 +798,110 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _selectionController.forward(from: 0);
   }
 
+
+  // ───────────────────────────────────────────────────────────── tools
+
+  /// Hint (paid): points at the easiest cell to solve now. Pressing it again
+  /// while that cell is still open just re-selects it for free.
+  void _useHint() {
+    if (game.gameOver || game.paused || game.isGenerating) return;
+    final glow = game.hintGlow;
+    if (glow != null) {
+      final parts = glow.split(',');
+      _onCellTap(int.parse(parts[0]), int.parse(parts[1]));
+      return;
+    }
+    if (store.coins < hintCost) {
+      _notEnoughCoins();
+      return;
+    }
+    if (!game.pointHint()) return;
+    store.spend(hintCost);
+    _sound.playHint();
+    _selectionController.forward(from: 0);
+    AnalyticsService().logHintUsed(source: 'coins');
+  }
+
+  /// Magic (paid): fills the selected cell (or a random one) with its answer.
+  void _useMagic() {
+    if (game.gameOver || game.paused || game.isGenerating) return;
+    if (!store.spend(magicCost)) {
+      _notEnoughCoins();
+      return;
+    }
+    _sound.playHint();
+    game.magicFill();
+    _selectionController.forward(from: 0);
+    AnalyticsService().logHintUsed(source: 'magic');
+  }
+
+  /// Debug builds only: fills every open cell but one, to test the ending.
+  void _debugAlmostSolve() {
+    if (game.gameOver || game.isGenerating) return;
+    _debugAssisted = true;
+    (int, int)? last;
+    for (var r = 0; r < 9; r++) {
+      for (var c = 0; c < 9; c++) {
+        if (game.board[r][c] == game.solution[r][c]) continue;
+        if (last == null) {
+          last = (r, c);
+          continue;
+        }
+        game.board[r][c] = game.solution[r][c];
+      }
+    }
+    if (last != null) game.selectCell(last.$1, last.$2);
+  }
+
+  void _notEnoughCoins() {
+    _sound.playWrong();
+    showFreeCoins(context, store, title: 'NOT ENOUGH COINS');
+  }
+
+  void _togglePause() {
+    if (game.gameOver || game.isGenerating) return;
+    _sound.playClick();
+    game.togglePause();
+  }
+
+  Future<void> _leave() async {
+    _sound.playTap();
+    final shouldPop = await _onWillPop();
+    if (shouldPop && mounted) Navigator.of(context).pop();
+  }
+
+  // ───────────────────────────────────────────────────────────── layout
+
+  static const _boxLine = Color(0xFFFF9F43);
+  static const _cellLine = Color(0xFFF2DDB8);
+  static const _cream = Color(0xFFFFFBF2);
+  static const _givenInk = Color(0xFF2A3A6E);
+  static const _userInk = Color(0xFF8E3FD6);
+  static const _helpInk = Color(0xFF2E9E35);
+  static const _wrongInk = Color(0xFFF25A6B);
+
+  static const _keyColors = [
+    Color(0xFFF25A6B),
+    Color(0xFFFF9F43),
+    Color(0xFFF5C02B),
+    Color(0xFF3FB26B),
+    Color(0xFF1FB5A8),
+    Color(0xFF4D9BFE),
+    Color(0xFF4D7CFE),
+    Color(0xFF8E5BEA),
+    Color(0xFFE05BC4),
+  ];
+
+  static (String, Color) _difficultyStyle(String diff) => switch (diff) {
+        'easy' => ('EASY', const Color(0xFF3FB26B)),
+        'medium' => ('MEDIUM', const Color(0xFFFF9F43)),
+        'hard' => ('HARD', const Color(0xFFF25A6B)),
+        'expert' => ('EXPERT', const Color(0xFF8E5BEA)),
+        _ => (diff.toUpperCase(), const Color(0xFF7C8DB5)),
+      };
+
   @override
   Widget build(BuildContext context) {
-    final c = colors;
     return PopScope(
       canPop: !isOnline || game.gameOver,
       onPopInvokedWithResult: (didPop, result) async {
@@ -802,918 +915,930 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         focusNode: _focusNode,
         onKeyEvent: _handleKeyEvent,
         child: Scaffold(
-        backgroundColor: c.bg,
-        body: Stack(
-          children: [
-            // Main content inside SafeArea
-            SafeArea(
-              child: Column(
-                children: [
-                  Expanded(
-                    child: Stack(
-                    children: [
-                      SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-                        child: Center(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 460),
+          backgroundColor: GameBackdrop.bottom,
+          body: Stack(
+            children: [
+              const Positioned.fill(child: GameBackdrop()),
+              SafeArea(
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 480),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
                             child: Column(
                               children: [
-                                _buildHeader(c),
-                                const SizedBox(height: 16),
-                                // Show opponent progress for online challenges
-                                if (isOnline && _opponent != null) ...[
-                                  OpponentProgressBar(opponent: _opponent!, colors: c),
-                                  const SizedBox(height: 12),
-                                ],
-                                KeyedSubtree(key: _statsKey, child: _buildStatsBar(c)),
+                                _buildTopBar(),
                                 const SizedBox(height: 8),
-                                _buildProgressBar(c),
-                                const SizedBox(height: 14),
-                                KeyedSubtree(key: _boardKey, child: _buildBoard(c)),
-                                const SizedBox(height: 14),
-                                KeyedSubtree(key: _numpadKey, child: _buildNumpad(c)),
-                                const SizedBox(height: 10),
-                                _buildActionBar(c),
-                                const SizedBox(height: 12),
-                                _buildNewGameButton(),
+                                if (isOnline && _opponent != null) ...[
+                                  OpponentProgressBar(opponent: _opponent!, colors: colors),
+                                  const SizedBox(height: 8),
+                                ],
+                                KeyedSubtree(key: _statsKey, child: _buildStatusStrip()),
+                                Expanded(
+                                  child: LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      // Keys and tools keep their size; the board gets the rest.
+                                      const controls = 166.0;
+                                      final board = min(constraints.maxWidth, constraints.maxHeight - controls - 24);
+                                      return Center(
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            SizedBox.square(dimension: board, child: KeyedSubtree(key: _boardKey, child: _buildBoard())),
+                                            const SizedBox(height: 14),
+                                            KeyedSubtree(key: _numpadKey, child: _buildNumpad()),
+                                            const SizedBox(height: 10),
+                                            _buildTools(),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
                               ],
                             ),
                           ),
                         ),
                       ),
-                      if (_showConfetti) const ConfettiOverlay(),
-                      // Achievement unlock notification
-                      if (_showingAchievement != null)
-                        Positioned(
-                          top: 10,
-                          left: 0,
-                          right: 0,
-                          child: AchievementUnlockNotification(
-                            achievement: _showingAchievement!,
-                            onDismiss: _dismissAchievement,
-                          ),
-                        ),
-                    ],
                     ),
-                  ),
-                  // Banner pinned under the game - where players spend their time
-                  BannerAdWidget(key: ValueKey(_adService.isInitialized)),
-                ],
-              ),
-            ),
-            // Coach marks overlay OUTSIDE SafeArea to cover full screen
-            if (_showCoachMarks)
-              Positioned.fill(
-                child: CoachMarksOverlay(
-                  colors: colors,
-                  marks: _buildCoachMarks(),
-                  onComplete: _onCoachMarksComplete,
+                    BannerAdWidget(key: ValueKey(_adService.isInitialized)),
+                  ],
                 ),
               ),
-          ],
+              if (_showConfetti) const Positioned.fill(child: IgnorePointer(child: ConfettiBurst())),
+              if (_showingAchievement != null)
+                Positioned(
+                  top: MediaQuery.paddingOf(context).top + 10,
+                  left: 0,
+                  right: 0,
+                  child: AchievementUnlockNotification(
+                    achievement: _showingAchievement!,
+                    onDismiss: _dismissAchievement,
+                  ),
+                ),
+              if (_showCoachMarks)
+                Positioned.fill(
+                  child: CoachMarksOverlay(
+                    colors: colors,
+                    marks: _buildCoachMarks(),
+                    onComplete: _onCoachMarksComplete,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
-    ),
     );
   }
 
-  Widget _buildHeader(AppColorScheme c) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        GestureDetector(
-          onTap: () async {
-            HapticFeedback.lightImpact();
-            final shouldPop = await _onWillPop();
-            if (shouldPop && mounted) {
-              Navigator.of(context).pop();
-            }
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(9)),
-            child: Row(
+  /// Back button, the level / mode title, coins.
+  Widget _buildTopBar() {
+    final level = game.journeyLevel;
+    final String title;
+    if (level != null) {
+      title = 'LEVEL $level';
+    } else if (isDaily) {
+      title = 'DAILY';
+    } else if (isOnline) {
+      title = 'LIVE RACE';
+    } else if (game.challengeMode) {
+      title = 'CHALLENGE';
+    } else {
+      title = 'FREE PLAY';
+    }
+    return SizedBox(
+      height: 54,
+      child: Row(
+        children: [
+          PressScale(
+            child: GestureDetector(
+              onTap: _leave,
+              child: const GameIcon(GameIcons.back, size: 50, flipForRtl: true),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.arrow_back, color: c.textMuted),
+                GestureDetector(
+                  onLongPress: kDebugMode ? _debugAlmostSolve : null,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: OutlinedText(title, size: 28, stroke: GameBackdrop.ink),
+                  ),
+                ),
+                if (level != null) ...[const SizedBox(height: 3), _stageDots(level)],
               ],
             ),
           ),
-        ),
-        ShaderMask(
-          shaderCallback: (bounds) => const LinearGradient(colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)]).createShader(bounds),
-          child: const Text('Sudoku', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: -1, color: Colors.white)),
-        ),
-        Row(
-          children: [
-            if (isDaily)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)]),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('📅 ', style: TextStyle(fontSize: 10)),
-                    Text('Daily', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white)),
-                  ],
-                ),
-              )
-            else if (game.challengeMode)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: isOnline
-                      ? [const Color(0xFF10B981), const Color(0xFF059669)]
-                      : [const Color(0xFFF72585), const Color(0xFF7209B7)]),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (isOnline) ...[
-                      const Text('🌐 ', style: TextStyle(fontSize: 10)),
-                    ],
-                    Text(isOnline ? 'Online' : 'Challenge', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white)),
-                  ],
-                ),
-              ),
-            const SizedBox(width: 8),
-            // Theme picker button
-            QuickThemeButton(
-              store: store,
-              colors: c,
-              onThemeChanged: () => setState(() {}),
+          ListenableBuilder(
+            listenable: store,
+            builder: (context, _) => CoinPill(
+              coins: store.coins,
+              background: GameBackdrop.ink,
+              onAdd: () => showFreeCoins(context, store),
             ),
-            const SizedBox(width: 8),
-            // Dark/light mode toggle
-            GestureDetector(
-              onTap: () {
-                HapticFeedback.lightImpact();
-                widget.onToggleTheme?.call();
-                setState(() {});
-              },
-              child: Container(
-                width: 38, height: 38,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: c.surface, border: Border.all(color: c.border)),
-                alignment: Alignment.center,
-                child: Text(store.isDark ? '☀️' : '🌙', style: const TextStyle(fontSize: 16)),
-              ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The current stage's ten levels as dots: done, this one, still to come.
+  Widget _stageDots(int level) {
+    final first = stageOf(level) * levelsPerStage + 1;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var l = first; l < first + levelsPerStage; l++)
+          Container(
+            width: l == level ? 12 : 8,
+            height: l == level ? 12 : 8,
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: l == level
+                  ? Colors.white
+                  : store.isJourneyCleared(l)
+                      ? const Color(0xFFFFC23D)
+                      : Colors.white.withValues(alpha: 0.35),
+              border: l == level ? Border.all(color: const Color(0xFFFFC23D), width: 2) : null,
             ),
-          ],
-        ),
+          ),
       ],
     );
   }
 
-  Widget _buildStatsBar(AppColorScheme c) {
-    final diffColors = _getDifficultyColors(game.difficulty);
+  /// Difficulty, hearts left and the timer with its pause button.
+  Widget _buildStatusStrip() {
+    final (label, color) = _difficultyStyle(game.difficulty);
+    final left = GameState.maxMistakes - game.mistakes;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
       decoration: BoxDecoration(
-        color: c.surface,
-        border: Border.all(color: c.border),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [BoxShadow(color: c.primary.withValues(alpha: 0.1), blurRadius: 24, offset: const Offset(0, 4))],
+        color: Colors.white.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(23),
+        boxShadow: const [BoxShadow(color: Color(0x33000000), offset: Offset(0, 3))],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Difficulty badge
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: diffColors.$1,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              game.difficulty[0].toUpperCase() + game.difficulty.substring(1),
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: diffColors.$2),
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(16)),
+            child: OutlinedText(label, size: 15, stroke: Color.lerp(color, Colors.black, 0.45)!),
           ),
-          // Mistakes
-          Row(
-            children: [
-              ...List.generate(5, (i) => Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  width: 8, height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: i < game.mistakes ? c.errColor : c.border,
-                    boxShadow: i < game.mistakes ? [
-                      BoxShadow(color: c.errColor.withValues(alpha: 0.5), blurRadius: 4),
-                    ] : null,
-                  ),
-                ),
-              )),
-            ],
-          ),
-          // Timer
-          Row(
-            children: [
-              Text(_fmtTime(game.seconds), style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700, color: c.text, fontFeatures: const [FontFeature.tabularFigures()])),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () {
-                  HapticFeedback.lightImpact();
-                  game.togglePause();
-                },
-                child: Text(game.paused ? '▶' : '⏸', style: const TextStyle(fontSize: 15)),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProgressBar(AppColorScheme c) {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('Progress', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: c.textMuted)),
-            Text('${(_progress * 100).toInt()}%', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: c.primary)),
-          ],
-        ),
-        const SizedBox(height: 4),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: _progress,
-            minHeight: 6,
-            backgroundColor: c.surface2,
-            valueColor: AlwaysStoppedAnimation<Color>(c.primary),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildBoard(AppColorScheme c) {
-    final bs = boardStyle;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: c.border),
-        boxShadow: [
-          BoxShadow(color: c.primary.withValues(alpha: 0.1), blurRadius: 24, offset: const Offset(0, 4)),
-          if (bs.hasOuterGlow) BoxShadow(color: c.primary.withValues(alpha: 0.3), blurRadius: 12),
-        ],
-      ),
-      child: Stack(
-        children: [
-          AspectRatio(
-            aspectRatio: 1,
-            child: (game.puzzle.isEmpty || game.isGenerating)
-                ? Center(
-                    child: BoardScannerLoader(
-                      primaryColor: c.primary,
-                      borderColor: c.border,
+          Expanded(
+            child: Shake(
+              trigger: game.mistakes,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (var i = 0; i < GameState.maxMistakes; i++)
+                    AnimatedScale(
+                      scale: i < left ? 1 : 0.8,
+                      duration: const Duration(milliseconds: 250),
+                      child: Icon(
+                        Icons.favorite_rounded,
+                        size: 22,
+                        color: i < left ? const Color(0xFFF25A6B) : const Color(0xFFD9D4E2),
+                      ),
                     ),
-                  )
-                : GridView.builder(
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 9),
-                    itemCount: 81,
-                    itemBuilder: (ctx, idx) {
-                      final r = idx ~/ 9, col = idx % 9;
-                      return _buildCell(r, col, c);
-                    },
-                  ),
-          ),
-          // Pause overlay
-          if (game.paused)
-            Positioned.fill(
-              child: GestureDetector(
-                onTap: () {
-                  HapticFeedback.lightImpact();
-                  game.togglePause();
-                },
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: c.surface,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  alignment: Alignment.center,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('⏸', style: TextStyle(fontSize: 36)),
-                      const SizedBox(height: 8),
-                      Text('Tap to resume', style: TextStyle(fontSize: 13, color: c.textMuted)),
-                      const SizedBox(height: 4),
-                      Text('or press Space', style: TextStyle(fontSize: 11, color: c.textMuted.withValues(alpha: 0.6))),
-                    ],
-                  ),
-                ),
+                ],
               ),
             ),
+          ),
+          Text(
+            _fmtTime(game.seconds),
+            style: const TextStyle(
+              fontFamily: kBodyFont,
+              fontWeight: FontWeight.w700,
+              fontSize: 19,
+              color: CartoonPanel.ink,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(width: 6),
+          PressScale(
+            child: GestureDetector(
+              onTap: _togglePause,
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: const BoxDecoration(color: Color(0xFF4D7CFE), shape: BoxShape.circle),
+                child: Icon(game.paused ? Icons.play_arrow_rounded : Icons.pause_rounded, color: Colors.white, size: 24),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildCell(int r, int c, AppColorScheme col) {
+  Widget _buildBoard() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = min(constraints.maxWidth, constraints.maxHeight);
+        const frame = 5.0;
+        final cell = (size - frame * 2) / 9;
+        final ready = !(game.puzzle.isEmpty || game.isGenerating);
+        return Center(
+          child: Container(
+            width: size,
+            height: size,
+            padding: const EdgeInsets.all(frame),
+            decoration: BoxDecoration(
+              color: _boxLine,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white, width: 3),
+              boxShadow: const [
+                BoxShadow(color: GameBackdrop.ink, offset: Offset(0, 6)),
+                BoxShadow(color: Color(0x33000000), blurRadius: 14, offset: Offset(0, 10)),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(13),
+              child: Stack(
+                children: [
+                  Positioned.fill(child: Container(color: _cream)),
+                  if (!ready)
+                    const Center(child: BoardScannerLoader(primaryColor: _boxLine, borderColor: _cellLine))
+                  else
+                    Column(
+                      children: [
+                        for (var r = 0; r < 9; r++)
+                          Expanded(
+                            child: Row(
+                              children: [
+                                for (var c = 0; c < 9; c++) Expanded(child: _buildCell(r, c, cell)),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  const Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _GridPainter()))),
+                  if (game.paused) Positioned.fill(child: _pauseCover()),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _pauseCover() {
+    return Container(
+      color: _cream,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const OutlinedText('PAUSED', size: 40, color: Color(0xFFFFC23D), stroke: Color(0xFF9A4A00)),
+          const SizedBox(height: 6),
+          const PanelText('Take a breather. The clock is stopped.', size: 15),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: 200,
+            child: CartoonButton(
+              label: 'RESUME',
+              icon: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 28),
+              onTap: () => game.togglePause(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCell(int r, int c, double size) {
     final val = game.board[r][c];
     final given = game.isGiven[r][c];
     final isSel = r == game.selectedRow && c == game.selectedCol;
-    final inGroup = !isSel && game.hasSelection &&
-        (r == game.selectedRow || c == game.selectedCol ||
-            (r ~/ 3 == game.selectedRow! ~/ 3 && c ~/ 3 == game.selectedCol! ~/ 3));
+    final inGroup = !isSel &&
+        game.hasSelection &&
+        (r == game.selectedRow || c == game.selectedCol || (r ~/ 3 == game.selectedRow! ~/ 3 && c ~/ 3 == game.selectedCol! ~/ 3));
     final sameNum = !isSel && game.selectedValue > 0 && val == game.selectedValue;
     final isErr = !given && val != 0 && val != game.solution[r][c];
-    final isHint = game.hintCells.contains('$r,$c');
+    final isHelp = game.hintCells.contains('$r,$c');
+    final glowing = game.hintGlow == '$r,$c';
 
-    Color bgColor = Colors.transparent;
+    Color bg = Colors.transparent;
     if (isSel) {
-      bgColor = col.selBg;
+      bg = const Color(0xFFFFC870);
     } else if (sameNum) {
-      bgColor = col.sameBg;
+      bg = const Color(0xFFFFDE9E);
     } else if (inGroup) {
-      bgColor = col.hlBg;
+      bg = const Color(0xFFFFF0CF);
     }
-    if (isErr) bgColor = col.errBg;
+    if (isErr) bg = isSel ? const Color(0xFFFFA3AE) : const Color(0xFFFFD6DB);
 
-    Color textColor = col.text;
-    if (isErr) {
-      textColor = col.errColor;
-    } else if (given) {
-      textColor = col.givenColor;
-    } else if (isHint) {
-      textColor = col.hintColor;
-    } else if (val != 0) {
-      textColor = col.userColor;
-    }
+    final ink = isErr
+        ? _wrongInk
+        : given
+            ? _givenInk
+            : isHelp
+                ? _helpInk
+                : _userInk;
 
-    // Borders - use board style settings
-    final bs = boardStyle;
-    final boxWidth = bs.boxBorderWidth;
-    final cellWidth = bs.cellBorderWidth;
-    final rightBorder = (c == 2 || c == 5 || c == 8) ? BorderSide(color: col.borderBox, width: boxWidth) : BorderSide(color: col.border, width: cellWidth);
-    final bottomBorder = (r == 2 || r == 5 || r == 8) ? BorderSide(color: col.borderBox, width: boxWidth) : BorderSide(color: col.border, width: cellWidth);
-    final leftBorder = c == 0 ? BorderSide(color: col.borderBox, width: boxWidth) : BorderSide.none;
-    final topBorder = r == 0 ? BorderSide(color: col.borderBox, width: boxWidth) : BorderSide.none;
+    Widget cellBox(Color color, [BoxBorder? border]) => Container(
+          decoration: BoxDecoration(color: color, border: border),
+          alignment: Alignment.center,
+          child: val != 0
+              ? Text(
+                  '$val',
+                  style: TextStyle(
+                    fontFamily: kBodyFont,
+                    fontWeight: given ? FontWeight.w700 : FontWeight.w600,
+                    fontSize: size * 0.6,
+                    height: 1,
+                    color: ink,
+                  ),
+                )
+              : game.notes[r][c].isNotEmpty
+                  ? _buildNotes(r, c, size)
+                  : null,
+        );
 
-    Widget cellContent = Container(
-      margin: EdgeInsets.all(bs.cellSpacing),
-      decoration: BoxDecoration(
-        color: bgColor,
-        border: Border(right: rightBorder, bottom: bottomBorder, left: leftBorder, top: topBorder),
-        borderRadius: BorderRadius.circular(bs.cellBorderRadius),
-        boxShadow: bs.hasInnerShadow && !isSel
-            ? [BoxShadow(color: col.border.withValues(alpha: 0.3), blurRadius: 2, offset: const Offset(1, 1))]
-            : null,
-      ),
-      alignment: Alignment.center,
-      child: val != 0
-          ? Text('$val', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: textColor))
-          : game.notes[r][c].isNotEmpty
-              ? _buildNotes(r, c, col)
-              : null,
-    );
+    // The cell a Hint points at pulses green until it is solved.
+    final Widget content0 = glowing
+        ? AnimatedBuilder(
+            animation: _glowController,
+            builder: (context, _) => cellBox(
+              Color.lerp(const Color(0xFFB8F0C8), const Color(0xFF6FDC8C), _glowController.value)!,
+              Border.all(color: _helpInk, width: 2.5),
+            ),
+          )
+        : cellBox(bg);
+    Widget content = content0;
 
-    // Add scale animation for selected cell
     if (isSel) {
-      cellContent = AnimatedBuilder(
+      content = AnimatedBuilder(
         animation: _selectionAnimation,
-        builder: (context, child) => Transform.scale(
-          scale: _selectionAnimation.value,
-          child: child,
-        ),
-        child: cellContent,
+        builder: (context, child) => Transform.scale(scale: _selectionAnimation.value, child: child),
+        child: content,
       );
     }
 
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () => _onCellTap(r, c),
-      child: cellContent,
+      child: content,
     );
   }
 
-  Widget _buildNotes(int r, int c, AppColorScheme col) {
-    return GridView.count(
-      crossAxisCount: 3,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(1),
-      children: List.generate(9, (i) {
-        final n = i + 1;
-        return Center(
-          child: Text(
-            game.notes[r][c].contains(n) ? '$n' : '',
-            style: TextStyle(fontSize: 8, fontWeight: FontWeight.w600, color: col.noteColor),
-          ),
-        );
-      }),
+  Widget _buildNotes(int r, int c, double size) {
+    final style = TextStyle(
+      fontFamily: kBodyFont,
+      fontWeight: FontWeight.w600,
+      fontSize: size * 0.24,
+      height: 1,
+      color: const Color(0xFF8A7A9E),
     );
-  }
-
-  Widget _buildNumpad(AppColorScheme c) {
-    return Row(
-      children: List.generate(9, (i) {
-        final n = i + 1;
-        final count = game.countForNumber(n);
-        final depleted = count >= 9;
-        final isComplete = depleted;
-
-        return Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2.5),
-            child: GestureDetector(
-              onTap: depleted ? null : () {
-                _sound.playInput();
-                game.inputNumber(n);
-              },
-              child: AspectRatio(
-                aspectRatio: 0.9,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  decoration: BoxDecoration(
-                    color: c.surface,
-                    border: Border.all(
-                      color: isComplete ? c.hintColor.withValues(alpha: 0.5) : c.border,
-                      width: isComplete ? 2 : 1.5,
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                    boxShadow: isComplete ? [
-                      BoxShadow(color: c.hintColor.withValues(alpha: 0.3), blurRadius: 8),
-                    ] : null,
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      AnimatedOpacity(
-                        duration: const Duration(milliseconds: 300),
-                        opacity: depleted ? 0.25 : 1,
-                        child: Text('$n', style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: isComplete ? c.hintColor : c.text,
-                        )),
+    return Padding(
+      padding: const EdgeInsets.all(1.5),
+      child: Column(
+        children: [
+          for (var i = 0; i < 3; i++)
+            Expanded(
+              child: Row(
+                children: [
+                  for (var j = 0; j < 3; j++)
+                    Expanded(
+                      child: Center(
+                        child: Text(game.notes[r][c].contains(i * 3 + j + 1) ? '${i * 3 + j + 1}' : '', style: style),
                       ),
-                      if (!depleted)
-                        Positioned(
-                          top: 2,
-                          right: 3,
-                          child: Text('${9 - count}', style: TextStyle(fontSize: 7, fontWeight: FontWeight.w600, color: c.textMuted)),
-                        ),
-                      if (isComplete)
-                        Positioned(
-                          top: 2,
-                          right: 3,
-                          child: Icon(Icons.check, size: 10, color: c.hintColor),
-                        ),
-                    ],
-                  ),
-                ),
+                    ),
+                ],
               ),
             ),
-          ),
-        );
-      }),
+        ],
+      ),
     );
   }
 
-  Widget _buildActionBar(AppColorScheme c) {
+  /// Nine rainbow keys; each shows how many of its number are still to place.
+  Widget _buildNumpad() {
     return Row(
       children: [
-        KeyedSubtree(
-          key: _undoKey,
-          child: _actionBtn('↩', 'Undo', 'Z', false, () {
-            _sound.playUndo();
-            game.undo();
-          }, c),
+        for (var n = 1; n <= 9; n++)
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: _numberKey(n),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _numberKey(int n) {
+    final left = 9 - game.countForNumber(n);
+    final done = left <= 0;
+    final base = _keyColors[n - 1];
+    final color = done
+        ? const Color(0xFFB9C3CF)
+        : game.notesMode
+            ? Color.lerp(base, Colors.white, 0.35)!
+            : base;
+    return ChunkyButton(
+      color: color,
+      height: 58,
+      radius: 14,
+      depth: 5,
+      onTap: done
+          ? null
+          : () {
+              _sound.playInput();
+              game.inputNumber(n);
+            },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          done
+              ? const Icon(Icons.check_rounded, color: Colors.white, size: 30)
+              : OutlinedText('$n', size: game.notesMode ? 22 : 28, stroke: Color.lerp(base, Colors.black, 0.45)!),
+          if (!done)
+            Text(
+              '$left left',
+              style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 10, height: 1, color: Colors.white),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTools() {
+    return Row(
+      children: [
+        Expanded(
+          child: KeyedSubtree(
+            key: _undoKey,
+            child: _tool(
+              color: const Color(0xFF4D7CFE),
+              icon: const Icon(Icons.undo_rounded, color: Colors.white, size: 30),
+              label: 'UNDO',
+              onTap: () {
+                _sound.playUndo();
+                game.undo();
+              },
+            ),
+          ),
         ),
-        const SizedBox(width: 8),
-        KeyedSubtree(
-          key: _eraseKey,
-          child: _actionBtn('⌫', 'Erase', '⌫', false, () {
-            _sound.playErase();
-            game.eraseCell();
-          }, c),
+        Expanded(
+          child: KeyedSubtree(
+            key: _eraseKey,
+            child: _tool(
+              color: const Color(0xFF1FB5A8),
+              icon: const Icon(Icons.backspace_rounded, color: Colors.white, size: 26),
+              label: 'ERASE',
+              onTap: () {
+                _sound.playErase();
+                game.eraseCell();
+              },
+            ),
+          ),
         ),
-        const SizedBox(width: 8),
-        KeyedSubtree(
-          key: _notesKey,
-          child: _actionBtn('✏️', 'Notes', 'N', game.notesMode, () {
-            _sound.playClick();
-            game.toggleNotes();
-          }, c),
+        Expanded(
+          child: KeyedSubtree(
+            key: _notesKey,
+            child: _tool(
+              color: const Color(0xFF8E5BEA),
+              icon: const Icon(Icons.edit_rounded, color: Colors.white, size: 28),
+              label: 'NOTES',
+              badge: _badge(game.notesMode ? 'ON' : 'OFF', game.notesMode ? const Color(0xFF3FB26B) : const Color(0xFF7C8DB5)),
+              onTap: () {
+                _sound.playClick();
+                game.toggleNotes();
+              },
+            ),
+          ),
         ),
-        const SizedBox(width: 8),
-        KeyedSubtree(
-          key: _hintKey,
-          child: _actionBtn('💡', 'Hint', 'H', false, () => _onHintPressed(c), c),
+        Expanded(
+          child: _tool(
+            color: const Color(0xFFFF9F43),
+            icon: const GameIcon(GameIcons.wand, size: 32),
+            label: 'MAGIC',
+            badge: _priceBadge(magicCost),
+            onTap: _useMagic,
+          ),
+        ),
+        Expanded(
+          child: KeyedSubtree(
+            key: _hintKey,
+            child: _tool(
+              color: const Color(0xFF3FB26B),
+              icon: const GameIcon(GameIcons.hint, size: 32),
+              label: 'HINT',
+              badge: game.hintGlow != null ? null : _priceBadge(hintCost),
+              onTap: _useHint,
+            ),
+          ),
         ),
       ],
     );
   }
 
-  Widget _actionBtn(String icon, String label, String shortcut, bool active, VoidCallback onTap, AppColorScheme c) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: active ? c.primary : c.surface,
-            border: Border.all(color: active ? c.primary : c.border, width: 1.5),
-            borderRadius: BorderRadius.circular(12),
+  Widget _tool({required Color color, required Widget icon, required String label, required VoidCallback onTap, Widget? badge}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          ChunkyButton(
+            color: color,
+            height: 62,
+            radius: 16,
+            depth: 5,
+            onTap: onTap,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                icon,
+                const SizedBox(height: 1),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: OutlinedText(label, size: 13, stroke: Color.lerp(color, Colors.black, 0.45)!, strokeWidth: 3),
+                ),
+              ],
+            ),
           ),
-          child: Column(
-            children: [
-              Text(icon, style: TextStyle(fontSize: 17, color: active ? Colors.white : c.textMuted)),
-              const SizedBox(height: 4),
-              Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: active ? Colors.white : c.textMuted)),
-            ],
-          ),
-        ),
+          if (badge != null) Positioned(top: -8, right: -4, child: IgnorePointer(child: badge)),
+        ],
       ),
     );
   }
 
-  Widget _buildNewGameButton() {
-    // For daily challenges, show "Back to Home" instead of "New Game"
-    if (isDaily) {
-      return GestureDetector(
-        onTap: () {
-          HapticFeedback.mediumImpact();
-          Navigator.pop(context);
-        },
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 15),
-          decoration: BoxDecoration(
-            color: colors.surface,
-            border: Border.all(color: colors.border, width: 1.5),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          alignment: Alignment.center,
-          child: Text('Back to Home', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: colors.text, letterSpacing: 0.5)),
-        ),
+  Widget _priceBadge(int price) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(3, 2, 6, 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2B2250),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white, width: 1.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const GameIcon(GameIcons.coin, size: 14),
+          const SizedBox(width: 2),
+          Text('$price', style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 11, color: Colors.white)),
+        ],
+      ),
+    );
+  }
+
+  Widget _badge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white, width: 1.5),
+      ),
+      child: Text(text, style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 10, color: Colors.white)),
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────── results
+
+  String get _difficultyName => _difficultyStyle(game.difficulty).$1;
+
+  Future<void> _showWinDialog() async {
+    if (isOnline) {
+      _showOnlineWinDialog();
+      return;
+    }
+    final level = game.journeyLevel;
+    Widget? extra;
+    String title, subtitle, action;
+    String? secondary = 'HOME';
+    VoidCallback? share = _shareResult;
+    if (level != null) {
+      title = 'LEVEL $level';
+      subtitle = 'Stage ${stageOf(level) + 1} · $_difficultyName';
+      action = 'NEXT LEVEL';
+      if (_chestReady) extra = _chestNote();
+    } else if (isDaily) {
+      title = 'DAILY DONE';
+      subtitle = 'See you tomorrow!';
+      action = 'HOME';
+      secondary = null;
+      extra = _streakTiles();
+    } else if (game.challengeMode) {
+      title = 'CHALLENGE';
+      subtitle = 'Show your friend how you did!';
+      action = 'REPLAY';
+      extra = _pinTile(game.challengePin ?? '');
+    } else {
+      title = 'SOLVED!';
+      subtitle = '$_difficultyName puzzle';
+      action = 'PLAY AGAIN';
+    }
+    if (_endAchievements.isNotEmpty) {
+      extra = Column(
+        children: [
+          if (extra != null) ...[extra, const SizedBox(height: 8)],
+          _awardsStrip(),
+        ],
       );
     }
-
-    return SizedBox();
-
-    // return GestureDetector(
-    //   onTap: () {
-    //     HapticFeedback.mediumImpact();
-    //     _newGame();
-    //   },
-    //   child: Container(
-    //     width: double.infinity,
-    //     padding: const EdgeInsets.symmetric(vertical: 15),
-    //     decoration: BoxDecoration(
-    //       gradient: const LinearGradient(colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)]),
-    //       borderRadius: BorderRadius.circular(14),
-    //       boxShadow: [BoxShadow(color: const Color(0xFF4F6EF7).withValues(alpha: 0.35), blurRadius: 18, offset: const Offset(0, 4))],
-    //     ),
-    //     alignment: Alignment.center,
-    //     child: const Text('New Game', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5)),
-    //   ),
-    // );
-  }
-
-  (Color, Color) _getDifficultyColors(String diff) {
-    final isDark = store.isDark;
-    switch (diff) {
-      case 'easy':
-        return isDark ? (DiffBadgeColors.easyDark.bg, DiffBadgeColors.easyDark.text) : (DiffBadgeColors.easy.bg, DiffBadgeColors.easy.text);
-      case 'medium':
-        return isDark ? (DiffBadgeColors.mediumDark.bg, DiffBadgeColors.mediumDark.text) : (DiffBadgeColors.medium.bg, DiffBadgeColors.medium.text);
-      case 'hard':
-        return isDark ? (DiffBadgeColors.hardDark.bg, DiffBadgeColors.hardDark.text) : (DiffBadgeColors.hard.bg, DiffBadgeColors.hard.text);
-      case 'expert':
-        return isDark ? (DiffBadgeColors.expertDark.bg, DiffBadgeColors.expertDark.text) : (DiffBadgeColors.expert.bg, DiffBadgeColors.expert.text);
-      default:
-        return (colors.surface2, colors.textMuted);
-    }
-  }
-
-  void _showWinDialog() {
-    final c = colors;
-    if (isOnline) {
-      _showOnlineWinDialog(c);
-      return;
-    }
-    if (isDaily) {
-      _showDailyWinDialog(c);
-      return;
-    }
-    if (game.challengeMode) {
-      _showChallengeWinDialog(c);
-      return;
-    }
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _WinDialog(
-        colors: c,
-        time: _fmtTime(game.seconds),
-        mistakes: '${game.mistakes}',
-        difficulty: game.difficulty[0].toUpperCase() + game.difficulty.substring(1),
-        onPlayAgain: () async {
-          Navigator.pop(context);
-          await _maybeShowInterstitialAd();
-          if (mounted) _newGame();
-        },
-        onShare: _shareResult,
-        onHome: () async {
-          Navigator.pop(context);
-          await _maybeShowInterstitialAd();
-          if (mounted) Navigator.pop(context);
-        },
-      ),
+    final again = await showWinOverlay(
+      context,
+      store: store,
+      title: title,
+      subtitle: subtitle,
+      stars: _earnedStars,
+      reward: _earnedCoins,
+      time: _fmtTime(game.seconds),
+      mistakes: game.mistakes,
+      actionLabel: action,
+      secondaryLabel: secondary,
+      extra: extra,
+      onShare: share,
     );
-  }
-
-  void _showLoseDialog() {
-    final c = colors;
-    if (isOnline) {
-      _showOnlineLoseDialog(c);
-      return;
-    }
-    if (isDaily) {
-      _showDailyLoseDialog(c);
-      return;
-    }
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _LoseDialog(
-        colors: c,
-        onTryAgain: () async {
-          Navigator.pop(context);
-          await _maybeShowInterstitialAd();
-          if (mounted) _newGame();
-        },
-        onHome: () async {
-          Navigator.pop(context);
-          await _maybeShowInterstitialAd();
-          if (mounted) Navigator.pop(context);
-        },
-      ),
-    );
-  }
-
-  void _showChallengeWinDialog(AppColorScheme c) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _ChallengeWinDialog(
-        colors: c,
-        time: _fmtTime(game.seconds),
-        mistakes: '${game.mistakes}',
-        difficulty: game.difficulty[0].toUpperCase() + game.difficulty.substring(1),
-        pin: game.challengePin ?? '',
-        onShare: _shareResult,
-        onReplay: () async {
-          Navigator.pop(context);
-          await _maybeShowInterstitialAd();
-          if (!mounted) return;
-          final s = game.challengeSeed;
-          final p = game.challengePin;
-          final d = game.difficulty;
-          game.newGame(d, seed: s, pin: p);
-          _startTimer();
-          setState(() => _showConfetti = false);
-        },
-        onHome: _closeResultAndGoHome,
-      ),
-    );
-  }
-
-  void _showDailyWinDialog(AppColorScheme c) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _DailyResultDialog(
-        colors: c,
-        isWin: true,
-        time: _fmtTime(game.seconds),
-        mistakes: '${game.mistakes}',
-        difficulty: DailyChallenge.difficultyDisplayName(game.difficulty),
-        currentStreak: store.currentStreak,
-        longestStreak: store.longestStreak,
-        onShare: _shareResult,
-        onHome: _closeResultAndGoHome,
-      ),
-    );
-  }
-
-  void _showDailyLoseDialog(AppColorScheme c) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _DailyResultDialog(
-        colors: c,
-        isWin: false,
-        time: _fmtTime(game.seconds),
-        mistakes: '${game.mistakes}',
-        difficulty: DailyChallenge.difficultyDisplayName(game.difficulty),
-        currentStreak: store.currentStreak,
-        longestStreak: store.longestStreak,
-        onHome: _closeResultAndGoHome,
-      ),
-    );
-  }
-
-  void _showOnlineWinDialog(AppColorScheme c) {
-    // Determine result: winner, runner-up, or waiting
-    // I finished successfully - now check opponent status
-    final opponentFinishTime = _opponent?.finishTime;
-    final myTime = game.seconds;
-
-    OnlineResultType resultType;
-    if (_opponent == null || _opponent!.status == 'playing' || _opponent!.status == 'disconnected') {
-      // Opponent hasn't finished yet or disconnected - I'm the winner
-      resultType = OnlineResultType.winner;
-    } else if (opponentFinishTime == null) {
-      // Opponent finished but with no time (they lost due to mistakes) - I'm the winner
-      resultType = OnlineResultType.winner;
-    } else if (myTime <= opponentFinishTime) {
-      // I finished faster or at same time - I'm the winner
-      resultType = OnlineResultType.winner;
+    if (!mounted) return;
+    await maybeShowRankUp(context, store);
+    if (!mounted) return;
+    await _maybeShowInterstitialAd();
+    if (!mounted) return;
+    if (again != true || isDaily) {
+      Navigator.of(context).pop();
+    } else if (level != null) {
+      _playJourneyLevel(level + 1);
     } else {
-      // Opponent finished faster - I'm runner-up
-      resultType = OnlineResultType.runnerUp;
+      _newGame();
     }
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _OnlineResultDialog(
-        colors: c,
-        resultType: resultType,
-        myTime: _fmtTime(game.seconds),
-        myMistakes: '${game.mistakes}',
-        opponentTime: opponentFinishTime != null ? _fmtTime(opponentFinishTime) : '--:--',
-        opponentMistakes: '${_opponent?.mistakes ?? 0}',
-        opponentName: _opponent?.name ?? 'Opponent',
-        opponentStatus: _opponent?.status ?? 'unknown',
-        difficulty: game.difficulty[0].toUpperCase() + game.difficulty.substring(1),
-        onShare: () => _shareResult(wonDuel: resultType == OnlineResultType.winner),
-        onHome: () {
-          _onlineService.leaveRoom();
-          Navigator.pop(context);
-          Navigator.pop(context);
-        },
-      ),
-    );
   }
 
-  void _showOnlineLoseDialog(AppColorScheme c) {
-    // I made 3 mistakes - game over
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _OnlineResultDialog(
-        colors: c,
-        resultType: OnlineResultType.gameOver,
-        myTime: _fmtTime(game.seconds),
-        myMistakes: '${game.mistakes}',
-        opponentTime: _opponent?.finishTime != null ? _fmtTime(_opponent!.finishTime!) : '--:--',
-        opponentMistakes: '${_opponent?.mistakes ?? 0}',
-        opponentName: _opponent?.name ?? 'Opponent',
-        opponentStatus: _opponent?.status ?? 'unknown',
-        difficulty: game.difficulty[0].toUpperCase() + game.difficulty.substring(1),
-        onHome: () {
-          _onlineService.leaveRoom();
-          Navigator.pop(context);
-          Navigator.pop(context);
-        },
-      ),
-    );
-  }
-
-  /// Handle hint button press - show ad dialog if ads enabled
-  void _onHintPressed(AppColorScheme c) {
-    // If ads not enabled or no ad ready, give free hint
-    if (!_adService.isRewardedAdReady) {
-      _sound.playHint();
-      game.giveHint();
-      AnalyticsService().logHintUsed(source: 'free');
+  Future<void> _showLoseDialog() async {
+    if (isOnline) {
+      _showOnlineLoseDialog();
       return;
     }
+    final level = game.journeyLevel;
+    final retry = await showCartoonDialog<bool>(
+      context,
+      dismissible: false,
+      builder: (context) => CartoonPanel(
+        title: 'OUT OF HEARTS',
+        color: const Color(0xFFF25A6B),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.heart_broken_rounded, color: Color(0xFFF25A6B), size: 72),
+            const SizedBox(height: 6),
+            PanelText(
+              isDaily
+                  ? 'That was your ${GameState.maxMistakes}th mistake. The daily puzzle comes back tomorrow!'
+                  : 'That was your ${GameState.maxMistakes}th mistake. The answers are on the board — have another go!',
+            ),
+            if (isDaily) ...[const SizedBox(height: 12), _streakTiles()],
+            const SizedBox(height: 18),
+            if (!isDaily) ...[
+              CartoonButton(
+                label: level != null ? 'TRY AGAIN' : 'NEW PUZZLE',
+                icon: const Icon(Icons.refresh_rounded, color: Colors.white, size: 26),
+                onTap: () => Navigator.of(context).pop(true),
+              ),
+              const SizedBox(height: 4),
+            ],
+            CartoonButton.secondary(label: 'HOME', onTap: () => Navigator.of(context).pop(false)),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _maybeShowInterstitialAd();
+    if (!mounted) return;
+    if (retry == true) {
+      if (level != null) {
+        _playJourneyLevel(level);
+      } else {
+        _newGame();
+      }
+    } else {
+      Navigator.of(context).pop();
+    }
+  }
 
-    // Show dialog offering free hint or watch ad
-    showDialog(
-      context: context,
-      builder: (_) => Dialog(
-        backgroundColor: c.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('💡', style: TextStyle(fontSize: 40)),
-              const SizedBox(height: 12),
-              Text(
-                'Need a Hint?',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: c.text,
+  void _playJourneyLevel(int level) async {
+    setState(() {
+      _showConfetti = false;
+      _endHandled = false;
+      _debugAssisted = false;
+    });
+    _timer?.cancel();
+    final started = game.newGame(difficultyForLevel(level), seed: seedForLevel(level), journeyLevel: level);
+    AnalyticsService().logGameStart(difficulty: game.difficulty, mode: 'journey');
+    await started;
+    if (mounted) _startTimer();
+  }
+
+  /// "New award" chips for achievements unlocked by this win.
+  Widget _awardsStrip() {
+    return Wrap(
+      alignment: WrapAlignment.center,
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final a in _endAchievements)
+          Container(
+            padding: const EdgeInsets.fromLTRB(6, 4, 10, 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEDE3FF),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF8E5BEA), width: 2),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(a.icon, style: const TextStyle(fontSize: 16)),
+                const SizedBox(width: 4),
+                Text(
+                  a.name,
+                  style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF5B2EA6)),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Watch a short video to reveal one cell',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: c.textMuted,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              // Watch Ad Button
-              GestureDetector(
-                onTap: () async {
-                  Navigator.pop(context);
-                  final rewarded = await _adService.showRewardedAd(
-                    onUserEarnedReward: () {
-                      _sound.playHint();
-                      game.giveHint();
-                      AnalyticsService().logHintUsed(source: 'rewarded_ad');
-                    },
-                  );
-                  if (!rewarded && mounted) {
-                    // Ad failed, give hint anyway
-                    _sound.playHint();
-                    game.giveHint();
-                    AnalyticsService().logHintUsed(source: 'free');
-                  }
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.play_circle_fill, color: Colors.white, size: 20),
-                      SizedBox(width: 8),
-                      Text(
-                        'Watch Ad for Hint',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              // Cancel Button
-              GestureDetector(
-                onTap: () => Navigator.pop(context),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: BoxDecoration(
-                    color: c.surface2,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: c.border),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    'Cancel',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: c.text,
-                    ),
-                  ),
-                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _chestNote() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF0CF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFFC23D), width: 2),
+      ),
+      child: Row(
+        children: [
+          const Breathing(amount: 0.1, child: GameIcon(GameIcons.chestClosed, size: 44)),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: PanelText('Stage complete! Open the chest on the Journey map.', size: 14, align: TextAlign.start),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _streakTiles() {
+    return StatRow([
+      StatTile(
+        value: '${store.currentStreak}',
+        label: 'Day streak',
+        icon: const GameIcon(GameIcons.flame, size: 24),
+        color: const Color(0xFFF25A6B),
+      ),
+      StatTile(
+        value: '${store.longestStreak}',
+        label: 'Best streak',
+        icon: const GameIcon(GameIcons.trophy, size: 24),
+      ),
+    ]);
+  }
+
+  Widget _pinTile(String pin) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF0DFC0), width: 2),
+      ),
+      child: Column(
+        children: [
+          const Text(
+            'CHALLENGE PIN',
+            style: TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF8A7A9E), letterSpacing: 1),
+          ),
+          Text(pin, style: const TextStyle(fontFamily: kTitleFont, fontSize: 28, color: Color(0xFF8E5BEA), letterSpacing: 5)),
+        ],
+      ),
+    );
+  }
+
+  /// Who finished first, if I just finished the race.
+  OnlineResultType _onlineResult() {
+    final opponentTime = _opponent?.finishTime;
+    if (_opponent == null || _opponent!.status == 'playing' || _opponent!.status == 'disconnected') {
+      return OnlineResultType.winner;
+    }
+    if (opponentTime == null || game.seconds <= opponentTime) return OnlineResultType.winner;
+    return OnlineResultType.runnerUp;
+  }
+
+  void _showOnlineWinDialog() {
+    final result = _onlineResult();
+    _showOnlineResult(result, onShare: () => _shareResult(wonDuel: result == OnlineResultType.winner));
+  }
+
+  void _showOnlineLoseDialog() => _showOnlineResult(OnlineResultType.gameOver);
+
+  void _showOnlineResult(OnlineResultType result, {VoidCallback? onShare}) {
+    final (title, color, line) = switch (result) {
+      OnlineResultType.winner => ('YOU WON!', const Color(0xFF3FB26B), 'You finished first!'),
+      OnlineResultType.runnerUp => ('RUNNER-UP', const Color(0xFF4D7CFE), 'So close! You solved it too.'),
+      OnlineResultType.gameOver => ('OUT OF HEARTS', const Color(0xFFF25A6B), 'Too many mistakes this time.'),
+    };
+    final name = _opponent?.name ?? 'Opponent';
+    final oppTime = _opponent?.finishTime;
+    showCartoonDialog<void>(
+      context,
+      dismissible: false,
+      builder: (context) => CartoonPanel(
+        title: title,
+        color: color,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (result == OnlineResultType.winner)
+              const GameIcon(GameIcons.trophy, size: 72)
+            else if (result == OnlineResultType.gameOver)
+              const Icon(Icons.heart_broken_rounded, color: Color(0xFFF25A6B), size: 64),
+            if (result != OnlineResultType.gameOver && _earnedCoins > 0) ...[
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  OutlinedText('+$_earnedCoins', size: 26, color: const Color(0xFF7CE08A), stroke: const Color(0xFF1F6E3F)),
+                  const SizedBox(width: 6),
+                  const GameIcon(GameIcons.coin, size: 28),
+                ],
               ),
             ],
-          ),
+            const SizedBox(height: 6),
+            PanelText(line),
+            const SizedBox(height: 12),
+            _raceRow('YOU', _fmtTime(game.seconds), game.mistakes, const Color(0xFF8E5BEA)),
+            const SizedBox(height: 8),
+            _raceRow(name.toUpperCase(), oppTime != null ? _fmtTime(oppTime) : _opponentStatusLabel(), _opponent?.mistakes ?? 0, const Color(0xFF7C8DB5)),
+            const SizedBox(height: 18),
+            if (onShare != null) ...[
+              CartoonButton(
+                label: 'SHARE',
+                color: const Color(0xFF4D7CFE),
+                icon: const Icon(Icons.share_rounded, color: Colors.white, size: 22),
+                onTap: onShare,
+              ),
+              const SizedBox(height: 4),
+            ],
+            CartoonButton.secondary(
+              label: 'HOME',
+              onTap: () {
+                _onlineService.leaveRoom();
+                Navigator.pop(context);
+                Navigator.pop(this.context);
+              },
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Future<void> _closeResultAndGoHome() async {
-    Navigator.pop(context);
-    await _maybeShowInterstitialAd();
-    if (mounted) Navigator.pop(context);
+  String _opponentStatusLabel() => switch (_opponent?.status) {
+        'playing' => 'Still playing',
+        'disconnected' => 'Left',
+        'finished' => 'Out',
+        _ => '--:--',
+      };
+
+  Widget _raceRow(String who, String time, int mistakes, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color, width: 2),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              who,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontFamily: kTitleFont, fontSize: 18, color: color),
+            ),
+          ),
+          const Icon(Icons.timer_rounded, size: 18, color: Color(0xFF8A7A9E)),
+          const SizedBox(width: 3),
+          Text(time, style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 15, color: CartoonPanel.ink)),
+          const SizedBox(width: 10),
+          const Icon(Icons.close_rounded, size: 18, color: Color(0xFFF25A6B)),
+          Text('$mistakes', style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 15, color: CartoonPanel.ink)),
+        ],
+      ),
+    );
   }
 
   /// Show an interstitial every few finished games, at the break after a
@@ -1759,534 +1884,33 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   String _fmtTime(int s) => '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
 }
 
-// ── Win Dialog ──
-class _WinDialog extends StatelessWidget {
-  final AppColorScheme colors;
-  final String time, mistakes, difficulty;
-  final VoidCallback onPlayAgain, onShare;
-  final Function() onHome; // Can be async
-
-  const _WinDialog({required this.colors, required this.time, required this.mistakes, required this.difficulty, required this.onPlayAgain, required this.onShare, required this.onHome});
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: colors.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('🎉', style: TextStyle(fontSize: 50)),
-            const SizedBox(height: 10),
-            Text('Puzzle Solved!', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: colors.text)),
-            const SizedBox(height: 6),
-            Text('Excellent work!', style: TextStyle(fontSize: 14, color: colors.textMuted)),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: colors.surface2, borderRadius: BorderRadius.circular(14)),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _stat(time, 'Time'),
-                  _stat(mistakes, 'Mistakes'),
-                  _stat(difficulty, 'Difficulty'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            _gradientBtn('Play Again', onPlayAgain),
-            const SizedBox(height: 8),
-            _outlineBtn('📤 Share Result', onShare, colors),
-            const SizedBox(height: 8),
-            _outlineBtn('Home', onHome, colors),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _stat(String val, String lbl) => Column(
-    children: [
-      Text(val, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: colors.primary)),
-      const SizedBox(height: 2),
-      Text(lbl, style: TextStyle(fontSize: 10, color: colors.textMuted)),
-    ],
-  );
-}
-
-// ── Lose Dialog ──
-class _LoseDialog extends StatelessWidget {
-  final AppColorScheme colors;
-  final VoidCallback onTryAgain;
-  final Function() onHome; // Can be async
-
-  const _LoseDialog({required this.colors, required this.onTryAgain, required this.onHome});
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: colors.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('💀', style: TextStyle(fontSize: 50)),
-            const SizedBox(height: 10),
-            Text('Game Over', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: colors.text)),
-            const SizedBox(height: 6),
-            Text('Too many mistakes — solution revealed.', style: TextStyle(fontSize: 14, color: colors.textMuted), textAlign: TextAlign.center),
-            const SizedBox(height: 18),
-            _gradientBtn('Try Again', onTryAgain),
-            const SizedBox(height: 8),
-            _outlineBtn('Home', onHome, colors),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Challenge Win Dialog ──
-class _ChallengeWinDialog extends StatelessWidget {
-  final AppColorScheme colors;
-  final String time, mistakes, difficulty, pin;
-  final VoidCallback onReplay, onShare, onHome;
-
-  const _ChallengeWinDialog({required this.colors, required this.time, required this.mistakes, required this.difficulty, required this.pin, required this.onReplay, required this.onShare, required this.onHome});
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: colors.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('🏆', style: TextStyle(fontSize: 50)),
-            const SizedBox(height: 10),
-            Text('Challenge Complete!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: colors.text)),
-            const SizedBox(height: 6),
-            Text('Show your result to your friend!', style: TextStyle(fontSize: 13, color: colors.textMuted)),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: colors.surface2, borderRadius: BorderRadius.circular(14)),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _stat(time, 'Your Time'),
-                  _stat(mistakes, 'Mistakes'),
-                  _stat(difficulty, 'Difficulty'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: colors.surface2, borderRadius: BorderRadius.circular(12)),
-              child: Column(
-                children: [
-                  Text('CHALLENGE PIN', style: TextStyle(fontSize: 10, color: colors.textMuted, letterSpacing: 1)),
-                  const SizedBox(height: 4),
-                  Text(pin, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: colors.primary, letterSpacing: 5)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            _gradientBtn('📤 Share Result', onShare),
-            const SizedBox(height: 8),
-            _outlineBtn('🔄 Replay Same Puzzle', onReplay, colors),
-            const SizedBox(height: 8),
-            _outlineBtn('Back to Home', onHome, colors),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _stat(String val, String lbl) => Column(
-    children: [
-      Text(val, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: colors.primary)),
-      const SizedBox(height: 2),
-      Text(lbl, style: TextStyle(fontSize: 10, color: colors.textMuted)),
-    ],
-  );
-}
-
-// ── Online Result Type ──
 enum OnlineResultType { winner, runnerUp, gameOver }
 
-// ── Online Result Dialog ──
-class _OnlineResultDialog extends StatelessWidget {
-  final AppColorScheme colors;
-  final OnlineResultType resultType;
-  final String myTime, myMistakes, opponentTime, opponentMistakes, opponentName, opponentStatus, difficulty;
-  final VoidCallback onHome;
-  final VoidCallback? onShare; // Finished the puzzle (winner / runner-up)
-
-  const _OnlineResultDialog({
-    required this.colors,
-    required this.resultType,
-    required this.myTime,
-    required this.myMistakes,
-    required this.opponentTime,
-    required this.opponentMistakes,
-    required this.opponentName,
-    required this.opponentStatus,
-    required this.difficulty,
-    required this.onHome,
-    this.onShare,
-  });
+/// Thin lines between cells and thick orange lines around each 3×3 box.
+class _GridPainter extends CustomPainter {
+  const _GridPainter();
 
   @override
-  Widget build(BuildContext context) {
-    String emoji;
-    String title;
-    String subtitle;
-    Color titleColor;
-
-    switch (resultType) {
-      case OnlineResultType.winner:
-        emoji = '🏆';
-        title = 'You Won!';
-        subtitle = 'Congratulations! You finished first!';
-        titleColor = const Color(0xFF10B981);
-        break;
-      case OnlineResultType.runnerUp:
-        emoji = '🥈';
-        title = 'Runner-Up!';
-        subtitle = 'Great job! You completed the puzzle!';
-        titleColor = const Color(0xFF3B82F6);
-        break;
-      case OnlineResultType.gameOver:
-        emoji = '💀';
-        title = 'Game Over';
-        subtitle = 'Too many mistakes';
-        titleColor = colors.errColor;
-        break;
+  void paint(Canvas canvas, Size size) {
+    final thin = Paint()
+      ..color = _GameScreenState._cellLine
+      ..strokeWidth = 1.2;
+    final thick = Paint()
+      ..color = _GameScreenState._boxLine
+      ..strokeWidth = 3.5;
+    final step = size.width / 9, stepY = size.height / 9;
+    for (var i = 1; i < 9; i++) {
+      final paint = i % 3 == 0 ? null : thin;
+      if (paint == null) continue;
+      canvas.drawLine(Offset(i * step, 0), Offset(i * step, size.height), paint);
+      canvas.drawLine(Offset(0, i * stepY), Offset(size.width, i * stepY), paint);
     }
-
-    return Dialog(
-      backgroundColor: colors.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(emoji, style: const TextStyle(fontSize: 50)),
-            const SizedBox(height: 10),
-            Text(title, style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: titleColor)),
-            const SizedBox(height: 6),
-            Text(subtitle, style: TextStyle(fontSize: 14, color: colors.textMuted)),
-            const SizedBox(height: 18),
-            // Your stats
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: colors.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: colors.primary.withValues(alpha: 0.3)),
-              ),
-              child: Column(
-                children: [
-                  Text('YOUR RESULT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: colors.primary, letterSpacing: 1)),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _stat(myTime, 'Time', colors.primary),
-                      _stat(myMistakes, 'Mistakes', colors.primary),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            // Opponent stats
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: colors.surface2, borderRadius: BorderRadius.circular(14)),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(opponentName.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: colors.textMuted, letterSpacing: 1)),
-                      const SizedBox(width: 6),
-                      _statusBadge(),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _stat(opponentTime, 'Time', colors.textMuted),
-                      _stat(opponentMistakes, 'Mistakes', colors.textMuted),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text('Difficulty: $difficulty', style: TextStyle(fontSize: 11, color: colors.textMuted)),
-            const SizedBox(height: 18),
-            if (onShare != null) ...[
-              _gradientBtn('📤 Share Result', onShare!),
-              const SizedBox(height: 8),
-              _outlineBtn('Back to Home', onHome, colors),
-            ] else
-              _gradientBtn('Back to Home', onHome),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _statusBadge() {
-    Color color;
-    String text;
-
-    switch (opponentStatus) {
-      case 'finished':
-        color = const Color(0xFF10B981);
-        text = 'Finished';
-        break;
-      case 'disconnected':
-        color = const Color(0xFF6B7280);
-        text = 'Disconnected';
-        break;
-      case 'playing':
-        color = const Color(0xFF3B82F6);
-        text = 'Playing';
-        break;
-      default:
-        color = const Color(0xFFF59E0B);
-        text = 'Unknown';
+    for (final i in [3, 6]) {
+      canvas.drawLine(Offset(i * step, 0), Offset(i * step, size.height), thick);
+      canvas.drawLine(Offset(0, i * stepY), Offset(size.width, i * stepY), thick);
     }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(text, style: TextStyle(fontSize: 8, fontWeight: FontWeight.w700, color: color)),
-    );
   }
-
-  Widget _stat(String val, String lbl, Color color) => Column(
-    children: [
-      Text(val, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
-      const SizedBox(height: 2),
-      Text(lbl, style: TextStyle(fontSize: 10, color: colors.textMuted)),
-    ],
-  );
-}
-
-// ── Daily Result Dialog ──
-class _DailyResultDialog extends StatelessWidget {
-  final AppColorScheme colors;
-  final bool isWin;
-  final String time, mistakes, difficulty;
-  final int currentStreak, longestStreak;
-  final VoidCallback onHome;
-  final VoidCallback? onShare; // Wins only
-
-  const _DailyResultDialog({
-    required this.colors,
-    required this.isWin,
-    required this.time,
-    required this.mistakes,
-    required this.difficulty,
-    required this.currentStreak,
-    required this.longestStreak,
-    required this.onHome,
-    this.onShare,
-  });
 
   @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: colors.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(isWin ? '🎉' : '💀', style: const TextStyle(fontSize: 50)),
-            const SizedBox(height: 10),
-            Text(
-              isWin ? 'Daily Complete!' : 'Game Over',
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.w900,
-                color: isWin ? const Color(0xFF10B981) : colors.errColor,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              isWin ? 'Great job! See you tomorrow!' : 'Try again tomorrow!',
-              style: TextStyle(fontSize: 14, color: colors.textMuted),
-            ),
-            const SizedBox(height: 14),
-            // Stats
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: colors.surface2, borderRadius: BorderRadius.circular(14)),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _stat(time, 'Time'),
-                  _stat(mistakes, 'Mistakes'),
-                  _stat(difficulty, 'Difficulty'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            // Streak info
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                gradient: isWin
-                    ? const LinearGradient(colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)])
-                    : null,
-                color: isWin ? null : colors.surface2,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  Column(
-                    children: [
-                      Text(
-                        DailyChallenge.streakEmoji(currentStreak),
-                        style: const TextStyle(fontSize: 24),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '$currentStreak day${currentStreak != 1 ? 's' : ''}',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: isWin ? Colors.white : colors.text,
-                        ),
-                      ),
-                      Text(
-                        'Current Streak',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: isWin ? Colors.white.withValues(alpha: 0.8) : colors.textMuted,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Container(
-                    width: 1,
-                    height: 50,
-                    color: isWin ? Colors.white.withValues(alpha: 0.3) : colors.border,
-                  ),
-                  Column(
-                    children: [
-                      const Text('🏆', style: TextStyle(fontSize: 24)),
-                      const SizedBox(height: 4),
-                      Text(
-                        '$longestStreak day${longestStreak != 1 ? 's' : ''}',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          color: isWin ? Colors.white : colors.text,
-                        ),
-                      ),
-                      Text(
-                        'Best Streak',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: isWin ? Colors.white.withValues(alpha: 0.8) : colors.textMuted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            if (isWin) ...[
-              const SizedBox(height: 10),
-              Text(
-                DailyChallenge.streakMessage(currentStreak),
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: colors.primary,
-                ),
-              ),
-            ],
-            const SizedBox(height: 18),
-            if (onShare != null) ...[
-              _gradientBtn('📤 Share Result', onShare!),
-              const SizedBox(height: 8),
-              _outlineBtn('Back to Home', onHome, colors),
-            ] else
-              _gradientBtn('Back to Home', onHome),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _stat(String val, String lbl) => Column(
-    children: [
-      Text(val, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: colors.primary)),
-      const SizedBox(height: 2),
-      Text(lbl, style: TextStyle(fontSize: 10, color: colors.textMuted)),
-    ],
-  );
-}
-
-// ── Shared Buttons ──
-Widget _gradientBtn(String text, VoidCallback onTap) {
-  return GestureDetector(
-    onTap: () {
-      HapticFeedback.lightImpact();
-      onTap();
-    },
-    child: Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 13),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)]),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      alignment: Alignment.center,
-      child: Text(text, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
-    ),
-  );
-}
-
-Widget _outlineBtn(String text, VoidCallback onTap, AppColorScheme c) {
-  return GestureDetector(
-    onTap: () {
-      HapticFeedback.lightImpact();
-      onTap();
-    },
-    child: Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 13),
-      decoration: BoxDecoration(
-        color: c.surface,
-        border: Border.all(color: c.border, width: 1.5),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      alignment: Alignment.center,
-      child: Text(text, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: c.text)),
-    ),
-  );
+  bool shouldRepaint(covariant _GridPainter oldDelegate) => false;
 }

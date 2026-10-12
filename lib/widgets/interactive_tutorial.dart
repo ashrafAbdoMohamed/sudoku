@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../game/cartoon_dialog.dart';
+import '../game/ui_kit.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 
@@ -217,113 +219,54 @@ class _InteractiveTutorialState extends State<InteractiveTutorial>
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: c.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 400),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildHeader(),
-                const SizedBox(height: 16),
-                _buildProgressIndicator(),
-                const SizedBox(height: 20),
-                _buildInstructions(),
-                const SizedBox(height: 20),
-                _buildMiniBoard(),
-                const SizedBox(height: 16),
-                _buildNumpad(),
-                const SizedBox(height: 12),
-                _buildActions(),
-                const SizedBox(height: 16),
-                if (_step.action == TutorialAction.complete)
-                  _buildCompleteButton()
-                else
-                  _buildSkipButton(),
-              ],
-            ),
-          ),
-        ),
+    return CartoonPanel(
+      title: 'TUTORIAL',
+      color: const Color(0xFF8E5BEA),
+      icon: const Icon(Icons.school_rounded, color: Colors.white, size: 28),
+      onClose: () => Navigator.pop(context),
+      scrollable: true,
+      width: 400,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildProgressIndicator(),
+          const SizedBox(height: 12),
+          _buildInstructions(),
+          const SizedBox(height: 14),
+          _buildMiniBoard(),
+          const SizedBox(height: 14),
+          _buildNumpad(),
+          const SizedBox(height: 10),
+          _buildActions(),
+          const SizedBox(height: 12),
+          if (_step.action == TutorialAction.complete) _buildCompleteButton() else _buildSkipButton(),
+        ],
       ),
     );
   }
 
-  Widget _buildHeader() {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)],
-            ),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Icon(Icons.school_rounded, color: Colors.white, size: 24),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Interactive Tutorial',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                  color: c.text,
-                ),
-              ),
-              Text(
-                'Learn by doing',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: c.textMuted,
-                ),
-              ),
-            ],
-          ),
-        ),
-        GestureDetector(
-          onTap: () => Navigator.pop(context),
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: c.surface2,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.close, size: 20, color: c.textMuted),
-          ),
-        ),
-      ],
-    );
-  }
+  static const _keyColors = [Color(0xFFF25A6B), Color(0xFFFF9F43), Color(0xFF3FB26B), Color(0xFF4D7CFE)];
 
   Widget _buildProgressIndicator() {
     return Row(
-      children: List.generate(_steps.length, (i) {
-        final isComplete = i < _currentStep;
-        final isCurrent = i == _currentStep;
-        return Expanded(
-          child: Container(
-            height: 4,
-            margin: EdgeInsets.only(right: i < _steps.length - 1 ? 4 : 0),
-            decoration: BoxDecoration(
-              color: isComplete
-                  ? c.primary
-                  : isCurrent
-                      ? c.primary.withValues(alpha: 0.5)
-                      : c.surface2,
-              borderRadius: BorderRadius.circular(2),
+      children: [
+        for (var i = 0; i < _steps.length; i++)
+          Expanded(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              height: 10,
+              margin: EdgeInsets.only(right: i < _steps.length - 1 ? 5 : 0),
+              decoration: BoxDecoration(
+                color: i < _currentStep
+                    ? const Color(0xFF3FB26B)
+                    : i == _currentStep
+                        ? const Color(0xFFFFC23D)
+                        : const Color(0xFFF3E4C8),
+                borderRadius: BorderRadius.circular(5),
+              ),
             ),
           ),
-        );
-      }),
+      ],
     );
   }
 
@@ -331,54 +274,22 @@ class _InteractiveTutorialState extends State<InteractiveTutorial>
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 300),
       child: Container(
-        key: ValueKey(_currentStep),
-        padding: const EdgeInsets.all(16),
+        key: ValueKey('$_currentStep$_stepCompleted'),
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              c.primary.withValues(alpha: 0.1),
-              c.primary.withValues(alpha: 0.05),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: c.primary.withValues(alpha: 0.3)),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _stepCompleted ? const Color(0xFF3FB26B) : const Color(0xFFF0DFC0), width: 2),
         ),
         child: Column(
           children: [
-            Text(
-              _step.title,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: c.primary,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              _step.instruction,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                color: c.text,
-              ),
-            ),
+            Text(_step.title.toUpperCase(), textAlign: TextAlign.center, style: const TextStyle(fontFamily: kTitleFont, fontSize: 19, color: Color(0xFF8E5BEA))),
+            const SizedBox(height: 4),
+            PanelText(_step.instruction, size: 15),
             if (_stepCompleted) ...[
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.check_circle, color: c.primary, size: 20),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Great job!',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: c.primary,
-                    ),
-                  ),
-                ],
-              ),
+              const SizedBox(height: 6),
+              const OutlinedText('GREAT JOB!', size: 18, color: Color(0xFF7CE08A), stroke: Color(0xFF1F6E3F)),
             ],
           ],
         ),
@@ -388,25 +299,29 @@ class _InteractiveTutorialState extends State<InteractiveTutorial>
 
   Widget _buildMiniBoard() {
     return Container(
-      padding: const EdgeInsets.all(8),
+      width: 220,
+      height: 220,
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: c.border, width: 2),
+        color: const Color(0xFFFF9F43),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white, width: 3),
+        boxShadow: const [BoxShadow(color: Color(0xFFB4561A), offset: Offset(0, 5))],
       ),
-      child: AspectRatio(
-        aspectRatio: 1,
-        child: GridView.builder(
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 4,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          color: const Color(0xFFFFFBF2),
+          child: Column(
+            children: [
+              for (var r = 0; r < 4; r++)
+                Expanded(
+                  child: Row(
+                    children: [for (var col = 0; col < 4; col++) Expanded(child: _buildCell(r, col))],
+                  ),
+                ),
+            ],
           ),
-          itemCount: 16,
-          itemBuilder: (ctx, idx) {
-            final r = idx ~/ 4;
-            final col = idx % 4;
-            return _buildCell(r, col);
-          },
         ),
       ),
     );
@@ -417,83 +332,73 @@ class _InteractiveTutorialState extends State<InteractiveTutorial>
     final given = _isGiven[r][col];
     final isSelected = r == _selectedRow && col == _selectedCol;
     final isTarget = _step.targetRow == r && _step.targetCol == col;
-    final shouldHighlight = isTarget &&
-        (_step.action == TutorialAction.selectCell ||
-            _step.action == TutorialAction.addNote);
+    final shouldHighlight = isTarget && (_step.action == TutorialAction.selectCell || _step.action == TutorialAction.addNote);
 
-    Color bgColor = Colors.transparent;
-    if (isSelected) {
-      bgColor = c.selBg;
-    } else if (shouldHighlight && !_stepCompleted) {
-      bgColor = c.primary.withValues(alpha: _highlightAnimation.value);
-    }
-
-    final rightBorder = (col == 1)
-        ? BorderSide(color: c.borderBox, width: 2)
-        : BorderSide(color: c.border, width: 0.5);
-    final bottomBorder = (r == 1)
-        ? BorderSide(color: c.borderBox, width: 2)
-        : BorderSide(color: c.border, width: 0.5);
+    final rightBorder = col == 1
+        ? const BorderSide(color: Color(0xFFFF9F43), width: 3)
+        : col < 3
+            ? const BorderSide(color: Color(0xFFF2DDB8), width: 1.2)
+            : BorderSide.none;
+    final bottomBorder = r == 1
+        ? const BorderSide(color: Color(0xFFFF9F43), width: 3)
+        : r < 3
+            ? const BorderSide(color: Color(0xFFF2DDB8), width: 1.2)
+            : BorderSide.none;
 
     Widget cellContent = AnimatedBuilder(
       animation: _highlightAnimation,
-      builder: (context, child) => Container(
-        decoration: BoxDecoration(
-          color: bgColor,
-          border: Border(right: rightBorder, bottom: bottomBorder),
-        ),
-        alignment: Alignment.center,
-        child: val != 0
-            ? Text(
-                '$val',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: given ? c.givenColor : c.userColor,
-                ),
-              )
-            : _notes[r][col].isNotEmpty
-                ? _buildNotes(r, col)
-                : null,
-      ),
+      builder: (context, child) {
+        Color bg = Colors.transparent;
+        if (isSelected) {
+          bg = const Color(0xFFFFC870);
+        } else if (shouldHighlight && !_stepCompleted) {
+          bg = const Color(0xFF6FDC8C).withValues(alpha: _highlightAnimation.value.clamp(0.0, 1.0));
+        }
+        return Container(
+          decoration: BoxDecoration(color: bg, border: Border(right: rightBorder, bottom: bottomBorder)),
+          alignment: Alignment.center,
+          child: val != 0
+              ? Text(
+                  '$val',
+                  style: TextStyle(
+                    fontFamily: kBodyFont,
+                    fontSize: 26,
+                    fontWeight: given ? FontWeight.w700 : FontWeight.w600,
+                    color: given ? const Color(0xFF2A3A6E) : const Color(0xFF8E3FD6),
+                  ),
+                )
+              : _notes[r][col].isNotEmpty
+                  ? _buildNotes(r, col)
+                  : null,
+        );
+      },
     );
 
-    // Add pulse animation for target cells
     if (shouldHighlight && !_stepCompleted) {
       cellContent = AnimatedBuilder(
         animation: _pulseAnimation,
-        builder: (context, child) => Transform.scale(
-          scale: _pulseAnimation.value,
-          child: child,
-        ),
+        builder: (context, child) => Transform.scale(scale: _pulseAnimation.value, child: child),
         child: cellContent,
       );
     }
 
-    return GestureDetector(
-      onTap: () => _onCellTap(r, col),
-      child: cellContent,
-    );
+    return GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => _onCellTap(r, col), child: cellContent);
   }
 
   Widget _buildNotes(int r, int col) {
-    return GridView.count(
-      crossAxisCount: 2,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(2),
-      children: List.generate(4, (i) {
-        final n = i + 1;
-        return Center(
-          child: Text(
-            _notes[r][col].contains(n) ? '$n' : '',
-            style: TextStyle(
-              fontSize: 8,
-              fontWeight: FontWeight.w600,
-              color: c.noteColor,
+    const style = TextStyle(fontFamily: kBodyFont, fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF8A7A9E));
+    return Column(
+      children: [
+        for (var i = 0; i < 2; i++)
+          Expanded(
+            child: Row(
+              children: [
+                for (var j = 0; j < 2; j++)
+                  Expanded(child: Center(child: Text(_notes[r][col].contains(i * 2 + j + 1) ? '${i * 2 + j + 1}' : '', style: style))),
+              ],
             ),
           ),
-        );
-      }),
+      ],
     );
   }
 
@@ -502,43 +407,23 @@ class _InteractiveTutorialState extends State<InteractiveTutorial>
       children: List.generate(4, (i) {
         final n = i + 1;
         final isTarget = _step.targetNumber == n &&
-            (_step.action == TutorialAction.inputNumber ||
-                _step.action == TutorialAction.addNote);
-
+            (_step.action == TutorialAction.inputNumber || _step.action == TutorialAction.addNote) &&
+            !_stepCompleted;
+        final color = _notesMode ? Color.lerp(_keyColors[i], Colors.white, 0.35)! : _keyColors[i];
         return Expanded(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: GestureDetector(
-              onTap: () => _onNumberTap(n),
-              child: AnimatedBuilder(
-                animation: _pulseAnimation,
-                builder: (context, child) {
-                  return Transform.scale(
-                    scale: isTarget && !_stepCompleted ? _pulseAnimation.value : 1.0,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      decoration: BoxDecoration(
-                        color: isTarget && !_stepCompleted
-                            ? c.primary.withValues(alpha: 0.2)
-                            : c.surface,
-                        border: Border.all(
-                          color: isTarget && !_stepCompleted ? c.primary : c.border,
-                          width: isTarget && !_stepCompleted ? 2 : 1.5,
-                        ),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        '$n',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: isTarget && !_stepCompleted ? c.primary : c.text,
-                        ),
-                      ),
-                    ),
-                  );
-                },
+            child: AnimatedBuilder(
+              animation: _pulseAnimation,
+              builder: (context, child) => Transform.scale(scale: isTarget ? _pulseAnimation.value : 1.0, child: child),
+              child: ChunkyButton(
+                color: color,
+                height: 54,
+                radius: 16,
+                depth: 5,
+                border: isTarget,
+                onTap: () => _onNumberTap(n),
+                child: OutlinedText('$n', size: 28, stroke: Color.lerp(_keyColors[i], Colors.black, 0.45)!),
               ),
             ),
           ),
@@ -548,135 +433,58 @@ class _InteractiveTutorialState extends State<InteractiveTutorial>
   }
 
   Widget _buildActions() {
-    final isNotesTarget =
-        _step.action == TutorialAction.toggleNotes && !_stepCompleted;
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        GestureDetector(
+    final isNotesTarget = _step.action == TutorialAction.toggleNotes && !_stepCompleted;
+    return AnimatedBuilder(
+      animation: _pulseAnimation,
+      builder: (context, child) => Transform.scale(scale: isNotesTarget ? _pulseAnimation.value : 1.0, child: child),
+      child: SizedBox(
+        width: 180,
+        child: ChunkyButton(
+          color: const Color(0xFF8E5BEA),
+          height: 50,
+          radius: 16,
+          depth: 5,
+          border: isNotesTarget,
           onTap: _onNotesToggle,
-          child: AnimatedBuilder(
-            animation: _pulseAnimation,
-            builder: (context, child) {
-              return Transform.scale(
-                scale: isNotesTarget ? _pulseAnimation.value : 1.0,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: _notesMode
-                        ? c.primary
-                        : isNotesTarget
-                            ? c.primary.withValues(alpha: 0.2)
-                            : c.surface,
-                    border: Border.all(
-                      color: _notesMode || isNotesTarget ? c.primary : c.border,
-                      width: isNotesTarget ? 2 : 1.5,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(
-                        '✏️',
-                        style: TextStyle(
-                          fontSize: 18,
-                          color: _notesMode ? Colors.white : c.text,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Notes',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: _notesMode ? Colors.white : c.text,
-                        ),
-                      ),
-                      if (_notesMode) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text(
-                            'ON',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.edit_rounded, color: Colors.white, size: 22),
+              const SizedBox(width: 6),
+              const OutlinedText('NOTES', size: 18, stroke: Color(0xFF4A2896)),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                decoration: BoxDecoration(
+                  color: _notesMode ? const Color(0xFF3FB26B) : const Color(0xFF7C8DB5),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white, width: 1.5),
                 ),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCompleteButton() {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.mediumImpact();
-        widget.onComplete();
-        Navigator.pop(context);
-      },
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)],
-          ),
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF4F6EF7).withValues(alpha: 0.4),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        alignment: Alignment.center,
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Start Playing!',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w900,
-                color: Colors.white,
+                child: Text(_notesMode ? 'ON' : 'OFF', style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 11, color: Colors.white)),
               ),
-            ),
-            SizedBox(width: 8),
-            Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 22),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildSkipButton() {
-    return TextButton(
-      onPressed: () {
-        HapticFeedback.lightImpact();
+  Widget _buildCompleteButton() {
+    return CartoonButton(
+      label: 'START PLAYING!',
+      onTap: () {
+        widget.onComplete();
         Navigator.pop(context);
       },
-      child: Text(
-        'Skip Tutorial',
-        style: TextStyle(
-          fontSize: 14,
-          color: c.textMuted,
-        ),
+    );
+  }
+
+  Widget _buildSkipButton() {
+    return TextButton(
+      onPressed: () => Navigator.pop(context),
+      child: const Text(
+        'Skip tutorial',
+        style: TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w600, fontSize: 15, color: Color(0xFF8A7A9E)),
       ),
     );
   }

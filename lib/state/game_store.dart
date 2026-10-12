@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/achievement.dart';
+import '../models/progression.dart';
+import '../models/rank.dart';
 
 class ScoreEntry {
   final String diff;
@@ -60,6 +62,9 @@ class SavedGame {
   final int mistakes;
   final List<String> hintCells;
 
+  /// The Journey level this game belongs to (null outside the Journey).
+  final int? journeyLevel;
+
   SavedGame({
     required this.puzzle,
     required this.solution,
@@ -70,6 +75,7 @@ class SavedGame {
     required this.seconds,
     required this.mistakes,
     required this.hintCells,
+    this.journeyLevel,
   });
 
   Map<String, dynamic> toJson() => {
@@ -82,6 +88,7 @@ class SavedGame {
     'seconds': seconds,
     'mistakes': mistakes,
     'hintCells': hintCells,
+    if (journeyLevel != null) 'journeyLevel': journeyLevel,
   };
 
   factory SavedGame.fromJson(Map<String, dynamic> j) => SavedGame(
@@ -94,6 +101,7 @@ class SavedGame {
     seconds: j['seconds'],
     mistakes: j['mistakes'],
     hintCells: List<String>.from(j['hintCells'] ?? []),
+    journeyLevel: j['journeyLevel'] as int?,
   );
 }
 
@@ -157,6 +165,24 @@ class GameStore extends ChangeNotifier {
   bool reminderPromptShown = false;
 
   // Theme Settings
+  // Coins, stars, Journey and ranks (cartoon redesign)
+  int coins = startingCoins;
+
+  /// Total stars earned; ranks climb with them.
+  int stars = 0;
+
+  /// The next Journey level to play (levels below it are cleared).
+  int journeyNext = 1;
+
+  /// Best stars per cleared Journey level.
+  Map<int, int> journeyStars = {};
+
+  /// Opened stage chests (0-based stage numbers).
+  Set<int> journeyChests = {};
+
+  /// The highest rank the player has been shown (and paid for).
+  int rankSeen = 0;
+
   String colorThemeId = 'default'; // Color theme ID from ColorThemes
   String boardStyleId = 'classic'; // Board style ID from BoardStyles
 
@@ -377,6 +403,21 @@ class GameStore extends ChangeNotifier {
         // Theme Settings
         colorThemeId = j['colorThemeId'] ?? 'default';
         boardStyleId = j['boardStyleId'] ?? 'classic';
+
+        // Coins, stars, Journey and ranks. Players from before the redesign
+        // start with coins and stars for the puzzles they already solved.
+        coins = j['coins'] ?? startingCoins + min(won * 10, 800);
+        stars = j['stars'] ?? min(won * 2, 600);
+        journeyNext = j['journeyNext'] ?? 1;
+        if (j['journeyStars'] != null) {
+          journeyStars = (j['journeyStars'] as Map).map((k, v) => MapEntry(int.parse(k.toString()), v as int));
+        }
+        if (j['journeyChests'] != null) {
+          journeyChests = Set<int>.from(j['journeyChests'] as List);
+        }
+        // Their current rank counts as already celebrated, so they don't get
+        // a pile of rank-up popups on first launch.
+        rankSeen = j['rankSeen'] ?? rankIndex;
       } catch (_) {}
     }
 
@@ -455,6 +496,13 @@ class GameStore extends ChangeNotifier {
       // Theme Settings
       'colorThemeId': colorThemeId,
       'boardStyleId': boardStyleId,
+      // Coins, stars, Journey and ranks
+      'coins': coins,
+      'stars': stars,
+      'journeyNext': journeyNext,
+      'journeyStars': journeyStars.map((k, v) => MapEntry('$k', v)),
+      'journeyChests': journeyChests.toList(),
+      'rankSeen': rankSeen,
     }));
   }
 
@@ -673,6 +721,94 @@ class GameStore extends ChangeNotifier {
 
     save();
     notifyListeners();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // COINS, STARS, JOURNEY & RANKS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void addCoins(int amount) {
+    coins += amount;
+    save();
+    notifyListeners();
+  }
+
+  /// Spends [amount] coins; false (and nothing spent) if there aren't enough.
+  bool spend(int amount) {
+    if (coins < amount) return false;
+    coins -= amount;
+    save();
+    notifyListeners();
+    return true;
+  }
+
+  int get rankIndex => rankIndexFor(stars);
+  Rank get rank => ranks[rankIndex];
+
+  /// The rank still waiting for its celebration, if any.
+  int? get pendingRankUp => rankIndex > rankSeen ? rankIndex : null;
+
+  /// Marks the current rank as celebrated and pays its bonus once (once per
+  /// rank when several were gained at once). Returns the coins paid.
+  int claimRankUp() {
+    final gained = rankIndex - rankSeen;
+    if (gained <= 0) return 0;
+    rankSeen = rankIndex;
+    final reward = gained * rankUpReward;
+    coins += reward;
+    save();
+    notifyListeners();
+    return reward;
+  }
+
+  /// Rewards a solved puzzle outside the Journey (free play, daily,
+  /// challenges): its stars and coins. Returns the coins given.
+  int rewardWin(String difficulty, int earnedStars) {
+    final reward = coinsForWin(difficulty, earnedStars);
+    stars += earnedStars;
+    coins += reward;
+    save();
+    notifyListeners();
+    return reward;
+  }
+
+  int journeyStarsFor(int level) => journeyStars[level] ?? 0;
+  bool isJourneyCleared(int level) => level < journeyNext;
+  int get journeyStage => stageOf(journeyNext);
+
+  /// Records a solved Journey [level]. The first clear pays in full and
+  /// unlocks the next level; replays only pay for beating the best stars.
+  /// Returns the coins given and whether a stage chest is now ready.
+  ({int coins, bool chestReady}) completeJourneyLevel(int level, int earnedStars) {
+    final best = journeyStarsFor(level);
+    final firstClear = !isJourneyCleared(level);
+    var reward = 0;
+    if (firstClear) {
+      reward = coinsForWin(difficultyForLevel(level), earnedStars);
+      if (level == journeyNext) journeyNext++;
+    } else if (earnedStars > best) {
+      reward = 5 * (earnedStars - best);
+    }
+    if (earnedStars > best) {
+      stars += earnedStars - best;
+      journeyStars[level] = earnedStars;
+    }
+    coins += reward;
+    final chestReady = firstClear && isStageFinale(level) && !journeyChests.contains(stageOf(level));
+    save();
+    notifyListeners();
+    return (coins: reward, chestReady: chestReady);
+  }
+
+  bool isStageComplete(int stage) => isJourneyCleared((stage + 1) * levelsPerStage);
+
+  /// Opens a finished stage's chest, once. Returns the coins given.
+  int openChest(int stage) {
+    if (!isStageComplete(stage) || !journeyChests.add(stage)) return 0;
+    coins += chestReward;
+    save();
+    notifyListeners();
+    return chestReward;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

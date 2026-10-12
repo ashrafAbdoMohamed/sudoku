@@ -1,7 +1,13 @@
 import 'dart:async';
 import 'dart:math';
+
 import 'package:flutter/material.dart';
 
+import '../game/home_backdrop.dart';
+import '../game/ui_kit.dart';
+
+/// Opening screen: rainbow number tiles pop into a 3×3 grid, the logo
+/// bounces in, and a short loading bar fills.
 class SplashScreen extends StatefulWidget {
   final VoidCallback onComplete;
   const SplashScreen({super.key, required this.onComplete});
@@ -10,193 +16,144 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMixin {
-  late AnimationController _tileController;
-  late AnimationController _fadeController;
-  int _countdown = 3;
-  Timer? _timer;
+class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
+  static const _seconds = 2.4;
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: Duration(milliseconds: (_seconds * 1000).round()),
+  )..forward();
+  Timer? _done;
 
-  final _numbers = [5, 3, 7, 6, 1, 9, 8, 4, 2];
+  static const _numbers = [5, 3, 7, 6, 1, 9, 8, 4, 2];
+  static const _colors = [
+    Color(0xFFF25A6B),
+    Color(0xFFFF9F43),
+    Color(0xFFF5C02B),
+    Color(0xFF3FB26B),
+    Color(0xFF1FB5A8),
+    Color(0xFF4D9BFE),
+    Color(0xFF4D7CFE),
+    Color(0xFF8E5BEA),
+    Color(0xFFE05BC4),
+  ];
 
   @override
   void initState() {
     super.initState();
-    _tileController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..forward();
-    _fadeController = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
-    Future.delayed(const Duration(milliseconds: 1100), () {
-      if (mounted) _fadeController.forward();
-    });
-
-    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) return;
-      setState(() => _countdown--);
-      if (_countdown <= 0) {
-        t.cancel();
-        widget.onComplete();
-      }
+    _done = Timer(Duration(milliseconds: (_seconds * 1000).round() + 150), () {
+      if (mounted) widget.onComplete();
     });
   }
 
   @override
   void dispose() {
-    _tileController.dispose();
-    _fadeController.dispose();
-    _timer?.cancel();
+    _done?.cancel();
+    _c.dispose();
     super.dispose();
+  }
+
+  double _seg(double start, double end, [Curve curve = Curves.linear]) {
+    final s = _c.value * _seconds;
+    return curve.transform(((s - start) / (end - start)).clamp(0.0, 1.0));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment(-0.5, -1),
-            end: Alignment(0.5, 1),
-            colors: [Color(0xFF080B20), Color(0xFF111535), Color(0xFF0D1128)],
-          ),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Grid of tiles
-              AnimatedBuilder(
-                animation: _tileController,
-                builder: (context, _) {
-                  return Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: List.generate(9, (i) {
-                      final delay = i * 0.1 / 1.2;
-                      final t = ((_tileController.value - delay) / (1 - delay)).clamp(0.0, 1.0);
-                      final curve = Curves.elasticOut.transform(t);
-                      return Transform.scale(
-                        scale: curve,
-                        child: Transform.rotate(
-                          angle: (1 - t) * -pi,
-                          child: Container(
-                            width: 72,
-                            height: 72,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                              gradient: const LinearGradient(
-                                colors: [Color(0x594F6EF7), Color(0x59A855F7)],
-                              ),
-                              border: Border.all(color: const Color(0x734F6EF7), width: 1.5),
-                              boxShadow: [BoxShadow(color: const Color(0x404F6EF7), blurRadius: 18)],
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              '${_numbers[i]}',
-                              style: const TextStyle(
-                                fontSize: 32,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.white,
-                                shadows: [Shadow(color: Color(0xE68CA0FF), blurRadius: 16)],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
-                  );
-                },
-              ),
-              const SizedBox(height: 28),
-              // Logo
-              FadeTransition(
-                opacity: _fadeController,
-                child: SlideTransition(
-                  position: Tween(begin: const Offset(0, 0.3), end: Offset.zero).animate(_fadeController),
-                  child: Column(
-                    children: [
-                      ShaderMask(
-                        shaderCallback: (bounds) => const LinearGradient(
-                          colors: [Color(0xFF6A8FFF), Color(0xFFC084FC), Color(0xFFF471B5)],
-                        ).createShader(bounds),
-                        child: const Text(
-                          'Sudoku',
-                          style: TextStyle(fontSize: 54, fontWeight: FontWeight.w900, letterSpacing: -2, color: Colors.white),
-                        ),
-                      ),
-                      const SizedBox(height: 7),
-                      const Text(
-                        'THINK · SOLVE · WIN',
-                        style: TextStyle(fontSize: 12, color: Color(0x66FFFFFF), letterSpacing: 3),
-                      ),
-                    ],
+      body: Stack(
+        children: [
+          const Positioned.fill(child: HomeBackdrop()),
+          Center(
+            child: AnimatedBuilder(
+              animation: _c,
+              builder: (context, _) => Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _grid(),
+                  const SizedBox(height: 30),
+                  Transform.scale(
+                    scale: _seg(0.9, 1.5, Curves.elasticOut),
+                    child: const OutlinedText('SUDOKU', size: 64, color: Colors.white, stroke: Color(0xFF3D2B7A), strokeWidth: 10),
                   ),
-                ),
+                  const SizedBox(height: 4),
+                  Opacity(
+                    opacity: _seg(1.3, 1.7),
+                    child: const Text(
+                      'THINK · SOLVE · WIN',
+                      style: TextStyle(fontFamily: kTitleFont, fontSize: 18, letterSpacing: 3, color: Color(0xFF2B4E7A)),
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  Opacity(opacity: _seg(1.3, 1.6), child: _loadingBar(_seg(1.3, 2.35, Curves.easeInOut))),
+                ],
               ),
-              const SizedBox(height: 28),
-              // Loading dots
-              _PulseDots(),
-              const SizedBox(height: 28),
-              Text(
-                _countdown > 0 ? '$_countdown seconds…' : '',
-                style: const TextStyle(fontSize: 12, color: Color(0x40FFFFFF), letterSpacing: 1),
-              ),
-            ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _grid() {
+    return SizedBox(
+      width: 3 * 72 + 2 * 10,
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          for (var i = 0; i < 9; i++) _tile(i),
+        ],
+      ),
+    );
+  }
+
+  Widget _tile(int i) {
+    final t = _seg(i * 0.08, 0.6 + i * 0.08, Curves.elasticOut);
+    final color = _colors[i];
+    return Transform.scale(
+      scale: t,
+      child: Transform.rotate(
+        angle: (1 - t.clamp(0.0, 1.0)) * -pi / 2,
+        child: Container(
+          width: 72,
+          height: 72,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color.lerp(color, Colors.white, 0.3)!, color],
+            ),
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: [BoxShadow(color: Color.lerp(color, Colors.black, 0.4)!, offset: const Offset(0, 6))],
+          ),
+          alignment: Alignment.center,
+          child: OutlinedText('${_numbers[i]}', size: 38, stroke: Color.lerp(color, Colors.black, 0.45)!),
+        ),
+      ),
+    );
+  }
+
+  Widget _loadingBar(double progress) {
+    return Container(
+      width: 200,
+      height: 18,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2B4E7A).withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      alignment: Alignment.centerLeft,
+      child: FractionallySizedBox(
+        widthFactor: progress.clamp(0.04, 1.0),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFC23D),
+            borderRadius: BorderRadius.circular(6),
           ),
         ),
       ),
     );
   }
 }
-
-class _PulseDots extends StatefulWidget {
-  @override
-  State<_PulseDots> createState() => _PulseDotsState();
-}
-
-class _PulseDotsState extends State<_PulseDots> with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400))..repeat();
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (context, _) {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(3, (i) {
-            final phase = (_ctrl.value - i * 0.14).clamp(0.0, 1.0);
-            final scale = 1.0 + 0.35 * sin(phase * pi);
-            final opacity = 0.2 + 0.8 * sin(phase * pi).clamp(0.0, 1.0);
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Transform.scale(
-                scale: scale,
-                child: Opacity(
-                  opacity: opacity,
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Color(0x40FFFFFF),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }),
-        );
-      },
-    );
-  }
-}
-

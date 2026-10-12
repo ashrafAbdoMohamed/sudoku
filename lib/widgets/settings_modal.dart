@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../theme/app_theme.dart';
-import '../theme/board_themes.dart';
-import '../state/game_store.dart';
+
+import '../game/cartoon_dialog.dart';
+import '../game/ui_kit.dart';
+import '../services/notification_service.dart';
 import '../services/rate_app_service.dart';
 import '../services/share_service.dart';
-import '../services/notification_service.dart';
-import 'learning_modal.dart';
+import '../state/game_store.dart';
+import '../theme/app_theme.dart';
 import 'achievements_modal.dart';
+import 'learning_modal.dart';
 import 'legal_modal.dart';
-import 'theme_picker.dart';
 
 class SettingsModal extends StatefulWidget {
   final GameStore store;
@@ -31,23 +32,16 @@ class SettingsModal extends StatefulWidget {
 
 class _SettingsModalState extends State<SettingsModal> {
   bool _remindersBlocked = false;
-  late TextEditingController _nameCtrl;
-  late String _selectedColor;
+  late final TextEditingController _nameCtrl = TextEditingController(text: store.name);
+  late String _selectedColor = store.avatarColor;
   bool _profileChanged = false;
 
   AppColorScheme get c => widget.colors;
   GameStore get store => widget.store;
 
-  AppColorScheme _getCurrentColors() {
-    final theme = ColorThemes.fromId(store.colorThemeId);
-    return AppColors.fromColorTheme(theme, isDark: store.isDark);
-  }
-
   @override
   void initState() {
     super.initState();
-    _nameCtrl = TextEditingController(text: store.name);
-    _selectedColor = store.avatarColor;
     _nameCtrl.addListener(_onProfileChange);
   }
 
@@ -69,709 +63,277 @@ class _SettingsModalState extends State<SettingsModal> {
     HapticFeedback.mediumImpact();
     store.updateProfile(_nameCtrl.text.trim(), _selectedColor);
     widget.onProfileUpdate?.call();
+    FocusScope.of(context).unfocus();
     setState(() => _profileChanged = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Profile updated!'),
-        backgroundColor: c.primary,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile saved!')));
   }
 
-  Color _parseColor(String hex) {
-    final h = hex.replaceAll('#', '');
-    return Color(int.parse('FF$h', radix: 16));
-  }
+  Color _parseColor(String hex) => Color(int.parse('FF${hex.replaceAll('#', '')}', radix: 16));
+
+  Widget _switch(bool value, ValueChanged<bool> onChanged) => Switch(
+        value: value,
+        onChanged: (v) {
+          HapticFeedback.selectionClick();
+          onChanged(v);
+        },
+      );
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: c.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 400, maxHeight: 600),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      const Text('⚙️', style: TextStyle(fontSize: 26)),
-                      const SizedBox(width: 12),
-                      Text(
-                        'Settings',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                          color: c.text,
-                        ),
-                      ),
-                    ],
-                  ),
-                  GestureDetector(
-                    onTap: () {
-                      HapticFeedback.lightImpact();
-                      Navigator.pop(context);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: c.surface2,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(Icons.close, size: 20, color: c.textMuted),
-                    ),
-                  ),
-                ],
-              ),
+    return CartoonPanel(
+      title: 'SETTINGS',
+      color: const Color(0xFF4D7CFE),
+      onClose: () => Navigator.pop(context),
+      width: 400,
+      scrollable: true,
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const PanelSection('Profile'),
+          _profile(),
+          const PanelSection('Sound & feel'),
+          PanelRow(
+            icon: GameIcon(store.soundEnabled ? GameIcons.soundOn : GameIcons.soundOff, size: 28),
+            iconColor: const Color(0xFF4D7CFE),
+            title: 'Sound effects',
+            trailing: _switch(store.soundEnabled, (_) => setState(store.toggleSound)),
+          ),
+          PanelRow.emoji(
+            '📳',
+            iconColor: const Color(0xFF1FB5A8),
+            title: 'Vibration',
+            trailing: _switch(store.hapticEnabled, (_) => setState(store.toggleHaptic)),
+          ),
+          PanelRow.emoji(
+            '🔔',
+            iconColor: const Color(0xFFFF9F43),
+            title: 'Daily reminder',
+            subtitle: store.dailyRemindersEnabled
+                ? 'Every day at ${NotificationService.reminderHour - 12}:00 PM'
+                : _remindersBlocked
+                    ? 'Allow notifications in system settings'
+                    : 'Off',
+            trailing: _switch(store.dailyRemindersEnabled, (v) async {
+              if (v) {
+                final granted = await NotificationService().enableReminders(store, source: 'settings');
+                _remindersBlocked = !granted;
+              } else {
+                await NotificationService().disableReminders(store);
+              }
+              if (mounted) setState(() {});
+            }),
+          ),
+          const PanelSection('Help'),
+          PanelRow.emoji(
+            '📚',
+            iconColor: const Color(0xFF3FB26B),
+            title: 'How to play',
+            subtitle: 'Rules and solving tricks',
+            onTap: () {
+              Navigator.pop(context);
+              showCartoonDialog<void>(context, builder: (_) => LearningModal(colors: c));
+            },
+          ),
+          PanelRow.emoji(
+            '🏆',
+            iconColor: const Color(0xFFFFC23D),
+            title: 'Awards',
+            subtitle: '${store.unlockedCount}/${store.totalAchievements} unlocked',
+            onTap: () {
+              Navigator.pop(context);
+              showCartoonDialog<void>(context, builder: (_) => AchievementsModal(store: store, colors: c));
+            },
+          ),
+          PanelRow.emoji(
+            '⭐',
+            iconColor: const Color(0xFFFFC23D),
+            title: 'Rate the game',
+            subtitle: 'Enjoying it? A review helps a lot!',
+            onTap: () => RateAppService().openStoreListing(),
+          ),
+          PanelRow.emoji(
+            '📤',
+            iconColor: const Color(0xFF4D7CFE),
+            title: 'Share with friends',
+            onTap: () => ShareService().shareApp(),
+          ),
+          const PanelSection('Privacy'),
+          PanelRow.emoji(
+            '🔒',
+            iconColor: const Color(0xFF7C8DB5),
+            title: 'Privacy policy',
+            onTap: () => showCartoonDialog<void>(
+              context,
+              builder: (_) => LegalModal(colors: c, documentType: LegalDocumentType.privacyPolicy),
             ),
-            const SizedBox(height: 20),
-
-            // Scrollable content
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Profile Section
-                    _sectionTitle('Profile'),
-                    const SizedBox(height: 12),
-                    _buildProfileSection(),
-                    const SizedBox(height: 20),
-
-                    // Appearance Section
-                    _sectionTitle('Appearance'),
-                    const SizedBox(height: 12),
-                    _settingRow(
-                      icon: store.isDark ? '🌙' : '☀️',
-                      title: 'Dark Mode',
-                      subtitle: store.isDark ? 'Currently dark' : 'Currently light',
-                      trailing: Switch(
-                        value: store.isDark,
-                        onChanged: (_) {
-                          HapticFeedback.selectionClick();
-                          widget.onToggleTheme();
-                          setState(() {});
-                        },
-                        activeTrackColor: c.primary.withValues(alpha: 0.5),
-                        activeThumbColor: c.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _actionRow(
-                      icon: '🎨',
-                      title: 'Themes',
-                      subtitle: '${ColorThemes.fromId(store.colorThemeId).name} · ${BoardStyles.fromId(store.boardStyleId).name}',
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        showDialog(
-                          context: context,
-                          builder: (_) => ThemePickerModal(
-                            store: store,
-                            colors: _getCurrentColors(),
-                          ),
-                        ).then((_) => setState(() {}));
-                      },
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Sound & Haptics Section
-                    _sectionTitle('Sound & Haptics'),
-                    const SizedBox(height: 12),
-                    _settingRow(
-                      icon: '🔊',
-                      title: 'Sound Effects',
-                      subtitle: store.soundEnabled ? 'Enabled' : 'Disabled',
-                      trailing: Switch(
-                        value: store.soundEnabled,
-                        onChanged: (_) {
-                          HapticFeedback.selectionClick();
-                          store.toggleSound();
-                          setState(() {});
-                        },
-                        activeTrackColor: c.primary.withValues(alpha: 0.5),
-                        activeThumbColor: c.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _settingRow(
-                      icon: '📳',
-                      title: 'Haptic Feedback',
-                      subtitle: store.hapticEnabled ? 'Enabled' : 'Disabled',
-                      trailing: Switch(
-                        value: store.hapticEnabled,
-                        onChanged: (_) {
-                          if (store.hapticEnabled) {
-                            HapticFeedback.selectionClick();
-                          }
-                          store.toggleHaptic();
-                          setState(() {});
-                        },
-                        activeTrackColor: c.primary.withValues(alpha: 0.5),
-                        activeThumbColor: c.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Reminders Section
-                    _sectionTitle('Reminders'),
-                    const SizedBox(height: 12),
-                    _settingRow(
-                      icon: '🔔',
-                      title: 'Daily Challenge Reminder',
-                      subtitle: store.dailyRemindersEnabled
-                          ? 'Every day at ${NotificationService.reminderHour - 12}:00 PM'
-                          : _remindersBlocked
-                              ? 'Allow notifications in system settings'
-                              : 'Off',
-                      trailing: Switch(
-                        value: store.dailyRemindersEnabled,
-                        onChanged: (v) async {
-                          HapticFeedback.selectionClick();
-                          if (v) {
-                            final granted = await NotificationService().enableReminders(store, source: 'settings');
-                            _remindersBlocked = !granted;
-                          } else {
-                            await NotificationService().disableReminders(store);
-                          }
-                          if (mounted) setState(() {});
-                        },
-                        activeTrackColor: c.primary.withValues(alpha: 0.5),
-                        activeThumbColor: c.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Help Section
-                    _sectionTitle('Help'),
-                    const SizedBox(height: 12),
-                    _actionRow(
-                      icon: '📚',
-                      title: 'How to Play',
-                      subtitle: 'Learn Sudoku techniques',
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        Navigator.pop(context);
-                        showDialog(
-                          context: context,
-                          builder: (_) => LearningModal(colors: c),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    _actionRow(
-                      icon: '🏆',
-                      title: 'Achievements',
-                      subtitle: '${store.unlockedCount}/${store.totalAchievements} unlocked',
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        Navigator.pop(context);
-                        showDialog(
-                          context: context,
-                          builder: (_) => AchievementsModal(
-                            store: store,
-                            colors: c,
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    _actionRow(
-                      icon: '⭐',
-                      title: 'Rate App',
-                      subtitle: 'Love the app? Leave a review!',
-                      onTap: () async {
-                        HapticFeedback.lightImpact();
-                        final service = RateAppService();
-                        await service.openStoreListing();
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    _actionRow(
-                      icon: '📤',
-                      title: 'Share App',
-                      subtitle: 'Invite friends to play Sudoku',
-                      onTap: () async {
-                        HapticFeedback.lightImpact();
-                        await ShareService().shareApp();
-                      },
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Legal Section
-                    _sectionTitle('Legal'),
-                    const SizedBox(height: 12),
-                    _actionRow(
-                      icon: '🔒',
-                      title: 'Privacy Policy',
-                      subtitle: 'How we handle your data',
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        showDialog(
-                          context: context,
-                          builder: (_) => LegalModal(
-                            colors: c,
-                            documentType: LegalDocumentType.privacyPolicy,
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    _actionRow(
-                      icon: '📜',
-                      title: 'Terms of Service',
-                      subtitle: 'Terms and conditions',
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        showDialog(
-                          context: context,
-                          builder: (_) => LegalModal(
-                            colors: c,
-                            documentType: LegalDocumentType.termsOfService,
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    _actionRow(
-                      icon: '🍪',
-                      title: 'Privacy Settings',
-                      subtitle: 'Manage consent preferences',
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        _showPrivacySettings();
-                      },
-                    ),
-                    const SizedBox(height: 20),
-
-                    // App Info
-                    Center(
-                      child: Text(
-                        'Sudoku v1.0.0',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: c.textMuted,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+          ),
+          PanelRow.emoji(
+            '📜',
+            iconColor: const Color(0xFF7C8DB5),
+            title: 'Terms of service',
+            onTap: () => showCartoonDialog<void>(
+              context,
+              builder: (_) => LegalModal(colors: c, documentType: LegalDocumentType.termsOfService),
             ),
-          ],
-        ),
+          ),
+          PanelRow.emoji(
+            '🍪',
+            iconColor: const Color(0xFF7C8DB5),
+            title: 'Privacy choices',
+            subtitle: 'Analytics and ads',
+            onTap: _showPrivacySettings,
+          ),
+          const SizedBox(height: 8),
+          const Center(
+            child: Text('Sudoku v1.0.3', style: TextStyle(fontFamily: kBodyFont, fontSize: 12, color: Color(0xFF8A7A9E))),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildProfileSection() {
+  Widget _profile() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: c.surface2.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(16),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFF0DFC0), width: 2),
+        boxShadow: const [BoxShadow(color: Color(0xFFF0DFC0), offset: Offset(0, 3))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Avatar preview and name
           Row(
             children: [
-              // Avatar
               Container(
-                width: 56,
-                height: 56,
+                width: 54,
+                height: 54,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: _parseColor(_selectedColor),
-                  border: Border.all(
-                    color: c.border,
-                    width: 2,
-                  ),
+                  border: Border.all(color: Colors.white, width: 3),
+                  boxShadow: [BoxShadow(color: Color.lerp(_parseColor(_selectedColor), Colors.black, 0.35)!, offset: const Offset(0, 3))],
                 ),
                 alignment: Alignment.center,
-                child: Text(
-                  _nameCtrl.text.isNotEmpty
-                      ? _nameCtrl.text[0].toUpperCase()
-                      : 'P',
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                  ),
+                child: OutlinedText(
+                  _nameCtrl.text.isNotEmpty ? _nameCtrl.text[0].toUpperCase() : 'P',
+                  size: 24,
+                  stroke: Color.lerp(_parseColor(_selectedColor), Colors.black, 0.45)!,
                 ),
               ),
-              const SizedBox(width: 16),
-              // Name input
+              const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'YOUR NAME',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: c.textMuted,
-                        letterSpacing: 0.5,
-                      ),
+                child: TextField(
+                  controller: _nameCtrl,
+                  maxLength: 20,
+                  style: const TextStyle(fontFamily: kBodyFont, fontSize: 17, fontWeight: FontWeight.w700, color: CartoonPanel.ink),
+                  decoration: InputDecoration(
+                    labelText: 'Your name',
+                    labelStyle: const TextStyle(fontFamily: kBodyFont, color: Color(0xFF8A7A9E)),
+                    counterText: '',
+                    filled: true,
+                    fillColor: const Color(0xFFFFF8EA),
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFF0DFC0), width: 2),
                     ),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: _nameCtrl,
-                      maxLength: 20,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: c.text,
-                      ),
-                      decoration: InputDecoration(
-                        counterText: '',
-                        filled: true,
-                        fillColor: c.surface,
-                        isDense: true,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: c.border),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: c.border),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: c.primary),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                      ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFFF0DFC0), width: 2),
                     ),
-                  ],
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFF8E5BEA), width: 2),
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          // Avatar color selection
-          Text(
-            'AVATAR COLOR',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: c.textMuted,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: avatarColors.map((color) {
-              final argb = color.toARGB32();
-              final hex = '#${argb.toRadixString(16).substring(2).toUpperCase()}';
-              final active = hex == _selectedColor.toUpperCase();
-              return GestureDetector(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  setState(() {
-                    _selectedColor = hex;
-                    _profileChanged = true;
-                  });
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: color,
-                    border: Border.all(
-                      color: active ? c.text : Colors.transparent,
-                      width: 3,
-                    ),
-                    boxShadow: active
-                        ? [
-                            BoxShadow(
-                              color: color.withValues(alpha: 0.5),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: active
-                      ? const Icon(Icons.check, color: Colors.white, size: 18)
-                      : null,
-                ),
-              );
-            }).toList(),
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final color in avatarColors) _avatarDot(color),
+            ],
           ),
-          // Save button (only shows when changes are made)
           if (_profileChanged) ...[
-            const SizedBox(height: 16),
-            GestureDetector(
-              onTap: _saveProfile,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)],
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                alignment: Alignment.center,
-                child: const Text(
-                  'Save Profile',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
+            const SizedBox(height: 12),
+            CartoonButton(label: 'SAVE', height: 48, size: 19, onTap: _saveProfile),
           ],
         ],
       ),
     );
   }
 
-  Widget _sectionTitle(String title) {
-    return Text(
-      title.toUpperCase(),
-      style: TextStyle(
-        fontSize: 11,
-        fontWeight: FontWeight.w800,
-        color: c.textMuted,
-        letterSpacing: 1,
-      ),
-    );
-  }
-
-  Widget _settingRow({
-    required String icon,
-    required String title,
-    required String subtitle,
-    required Widget trailing,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: c.surface2.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          Text(icon, style: const TextStyle(fontSize: 22)),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: c.text,
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: c.textMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          trailing,
-        ],
-      ),
-    );
-  }
-
-  Widget _actionRow({
-    required String icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
+  Widget _avatarDot(Color color) {
+    final hex = '#${color.toARGB32().toRadixString(16).substring(2).toUpperCase()}';
+    final active = hex == _selectedColor.toUpperCase();
     return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: c.surface2.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          children: [
-            Text(icon, style: const TextStyle(fontSize: 22)),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: c.text,
-                    ),
-                  ),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: c.textMuted,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.arrow_forward_ios, size: 16, color: c.textMuted),
-          ],
+      onTap: () {
+        HapticFeedback.selectionClick();
+        setState(() {
+          _selectedColor = hex;
+          _profileChanged = _nameCtrl.text.trim() != store.name || hex != store.avatarColor;
+        });
+      },
+      child: AnimatedScale(
+        scale: active ? 1.15 : 1,
+        duration: const Duration(milliseconds: 180),
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color,
+            border: Border.all(color: active ? CartoonPanel.ink : Colors.white, width: 3),
+          ),
+          child: active ? const Icon(Icons.check_rounded, color: Colors.white, size: 18) : null,
         ),
       ),
     );
   }
 
   void _showPrivacySettings() {
-    showDialog(
-      context: context,
-      builder: (_) => Dialog(
-        backgroundColor: c.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
+    showCartoonDialog<void>(
+      context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setLocal) => CartoonPanel(
+          title: 'PRIVACY',
+          color: const Color(0xFF7C8DB5),
+          onClose: () => Navigator.pop(context),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  const Text('🍪', style: TextStyle(fontSize: 24)),
-                  const SizedBox(width: 12),
-                  Text(
-                    'Privacy Settings',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: c.text,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              _buildPrivacyToggle(
+              PanelRow.emoji(
+                '📊',
+                iconColor: const Color(0xFF4D7CFE),
                 title: 'Analytics',
-                description: 'Help us improve with anonymous usage data',
-                value: store.analyticsConsent,
-                onChanged: (v) {
+                subtitle: 'Anonymous usage data to improve the game',
+                trailing: _switch(store.analyticsConsent, (v) {
                   store.updateConsent(analytics: v);
-                  setState(() {});
-                },
+                  setLocal(() {});
+                }),
               ),
-              const SizedBox(height: 12),
-              _buildPrivacyToggle(
-                title: 'Personalized Ads',
-                description: 'Show ads relevant to your interests',
-                value: store.adsConsent,
-                onChanged: (v) {
+              PanelRow.emoji(
+                '🎯',
+                iconColor: const Color(0xFFFF9F43),
+                title: 'Personalised ads',
+                subtitle: 'Ads that match your interests',
+                trailing: _switch(store.adsConsent, (v) {
                   store.updateConsent(ads: v);
-                  setState(() {});
-                },
+                  setLocal(() {});
+                }),
               ),
-              const SizedBox(height: 20),
-              GestureDetector(
-                onTap: () {
-                  HapticFeedback.lightImpact();
-                  Navigator.pop(context);
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)],
-                    ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Text(
-                    'Done',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
+              const SizedBox(height: 8),
+              CartoonButton(label: 'DONE', onTap: () => Navigator.pop(context)),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildPrivacyToggle({
-    required String title,
-    required String description,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: c.surface2.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: c.text,
-                  ),
-                ),
-                Text(
-                  description,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: c.textMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeTrackColor: c.primary.withValues(alpha: 0.5),
-            activeThumbColor: c.primary,
-          ),
-        ],
       ),
     );
   }

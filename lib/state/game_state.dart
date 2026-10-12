@@ -63,7 +63,21 @@ class GameState extends ChangeNotifier {
   static const maxMistakes = 5;
 
   /// Analytics label for the current mode
-  String get mode => onlineMode ? 'online' : dailyMode ? 'daily' : challengeMode ? 'challenge' : 'classic';
+  /// The Journey level being played, or null outside the Journey.
+  int? journeyLevel;
+
+  /// Times Hint was used this game (Magic shows in [hintCells]).
+  int hintsUsed = 0;
+
+  /// The cell a Hint pointed at ("r,c"), glowing until it is filled.
+  String? hintGlow;
+
+  /// Whether Hint or Magic helped in this game (costs a star).
+  bool get usedHelp => hintsUsed > 0 || hintCells.isNotEmpty;
+
+  String get mode => journeyLevel != null
+      ? 'journey'
+      : onlineMode ? 'online' : dailyMode ? 'daily' : challengeMode ? 'challenge' : 'classic';
 
   bool get hasSelection => selectedRow != null && selectedCol != null;
   int get selectedValue => hasSelection && board.isNotEmpty ? board[selectedRow!][selectedCol!] : 0;
@@ -71,9 +85,11 @@ class GameState extends ChangeNotifier {
   bool get isGenerating => _generating;
   bool _generating = false;
 
-  Future<void> newGame(String diff, {int? seed, String? pin, bool online = false, bool isDaily = false}) async {
+  Future<void> newGame(String diff, {int? seed, String? pin, bool online = false, bool isDaily = false, int? journeyLevel}) async {
     difficulty = diff;
-    challengeMode = seed != null;
+    this.journeyLevel = journeyLevel;
+    // Journey levels are seeded too, but they aren't challenges.
+    challengeMode = seed != null && journeyLevel == null;
     challengeSeed = seed;
     challengePin = pin;
     onlineMode = online;
@@ -86,6 +102,8 @@ class GameState extends ChangeNotifier {
     isGiven = [];
     notes = [];
     hintCells = {};
+    hintsUsed = 0;
+    hintGlow = null;
     undoStack = [];
     selectedRow = null;
     selectedCol = null;
@@ -117,6 +135,8 @@ class GameState extends ChangeNotifier {
     isGiven = saved.isGiven;
     notes = saved.notes.map((r) => r.map((c) => Set<int>.from(c)).toList()).toList();
     hintCells = Set<String>.from(saved.hintCells);
+    hintsUsed = 0;
+    hintGlow = null;
     difficulty = saved.difficulty;
     seconds = saved.seconds;
     mistakes = saved.mistakes;
@@ -128,6 +148,7 @@ class GameState extends ChangeNotifier {
     gameOver = false;
     challengeMode = false;
     dailyMode = false;
+    journeyLevel = saved.journeyLevel;
     status = GameStatus.playing;
     notifyListeners();
   }
@@ -142,6 +163,7 @@ class GameState extends ChangeNotifier {
     seconds: seconds,
     mistakes: mistakes,
     hintCells: hintCells.toList(),
+    journeyLevel: journeyLevel,
   );
 
   void selectCell(int r, int c) {
@@ -189,6 +211,7 @@ class GameState extends ChangeNotifier {
           if (dailyMode) onDailyLost?.call(seconds, mistakes);
         }
       } else {
+        if (hintGlow == '$r,$c') hintGlow = null;
         _checkWin();
       }
     }
@@ -250,6 +273,71 @@ class GameState extends ChangeNotifier {
   void toggleNotes() {
     notesMode = !notesMode;
     notifyListeners();
+  }
+
+  /// Magic: fills the selected cell with its answer, or a random empty cell
+  /// when nothing fillable is selected.
+  void magicFill() {
+    if (gameOver || paused || _generating) return;
+    if (hasSelection) {
+      final r = selectedRow!, c = selectedCol!;
+      if (!isGiven[r][c] && board[r][c] != solution[r][c]) {
+        undoStack.add(UndoEntry(r: r, c: c, type: 'val', prevVal: board[r][c], nextVal: solution[r][c], prevNotes: Set.from(notes[r][c])));
+        board[r][c] = solution[r][c];
+        notes[r][c].clear();
+        hintCells.add('$r,$c');
+        if (hintGlow == '$r,$c') hintGlow = null;
+        _notifyProgressChange();
+        _checkWin();
+        notifyListeners();
+        return;
+      }
+    }
+    giveHint();
+  }
+
+  /// Hint: points at the easiest cell to solve now (the empty cell with the
+  /// fewest possible numbers) and selects it, without giving its number.
+  /// Returns false if there is nothing to point at.
+  bool pointHint() {
+    if (gameOver || paused || _generating) return false;
+    int? bestR, bestC;
+    var fewest = 10;
+    for (var r = 0; r < 9; r++) {
+      for (var c = 0; c < 9; c++) {
+        if (isGiven[r][c] || board[r][c] == solution[r][c]) continue;
+        final n = _candidates(r, c);
+        if (n < fewest) {
+          fewest = n;
+          bestR = r;
+          bestC = c;
+        }
+      }
+    }
+    if (bestR == null || bestC == null) return false;
+    hintsUsed++;
+    hintGlow = '$bestR,$bestC';
+    selectedRow = bestR;
+    selectedCol = bestC;
+    notifyListeners();
+    return true;
+  }
+
+  /// How many numbers could go in (r, c) given the numbers already placed
+  /// correctly in its row, column and box.
+  int _candidates(int r, int c) {
+    final used = <int>{};
+    for (var i = 0; i < 9; i++) {
+      if (board[r][i] != 0 && board[r][i] == solution[r][i]) used.add(board[r][i]);
+      if (board[i][c] != 0 && board[i][c] == solution[i][c]) used.add(board[i][c]);
+    }
+    final br = r ~/ 3 * 3, bc = c ~/ 3 * 3;
+    for (var i = br; i < br + 3; i++) {
+      for (var j = bc; j < bc + 3; j++) {
+        if (board[i][j] != 0 && board[i][j] == solution[i][j]) used.add(board[i][j]);
+      }
+    }
+    return 9 - used.length;
   }
 
   void giveHint() {

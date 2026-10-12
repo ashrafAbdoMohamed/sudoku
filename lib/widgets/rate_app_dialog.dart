@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+
+import '../game/cartoon_dialog.dart';
+import '../game/fx.dart';
+import '../game/ui_kit.dart';
 import '../theme/app_theme.dart';
 
 class RateAppDialog extends StatelessWidget {
@@ -16,149 +19,42 @@ class RateAppDialog extends StatelessWidget {
     required this.onNever,
   });
 
-  AppColorScheme get c => colors;
-
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: c.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 340),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+    return CartoonPanel(
+      title: 'ENJOYING IT?',
+      color: const Color(0xFFFFB020),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Stars animation
-              const Text(
-                '⭐️⭐️⭐️⭐️⭐️',
-                style: TextStyle(fontSize: 32),
-              ),
-              const SizedBox(height: 20),
-
-              // Title
-              Text(
-                'Enjoying Sudoku?',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                  color: c.text,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-
-              // Description
-              Text(
-                'You\'re on a roll with ${3} perfect games!\nWould you mind rating us on the store?',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: c.textMuted,
-                  height: 1.5,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-
-              Text(
-                'It helps us a lot and keeps the game free!',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: c.text,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-
-              // Rate button
-              GestureDetector(
-                onTap: () {
-                  HapticFeedback.mediumImpact();
-                  onRate();
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF4F6EF7).withValues(alpha: 0.3),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.star_rounded, color: Colors.white, size: 20),
-                      SizedBox(width: 8),
-                      Text(
-                        'Rate Now',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
+              for (var i = 0; i < 5; i++)
+                Entrance(
+                  delay: Duration(milliseconds: 120 * i),
+                  from: const Offset(0, 0.6),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: GameIcon(GameIcons.star, size: i == 2 ? 50 : 40),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-
-              // Later button
-              GestureDetector(
-                onTap: () {
-                  HapticFeedback.lightImpact();
-                  onLater();
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: BoxDecoration(
-                    color: c.surface2,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: c.border),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    'Maybe Later',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: c.text,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Never button
-              GestureDetector(
-                onTap: () {
-                  HapticFeedback.lightImpact();
-                  onNever();
-                },
-                child: Text(
-                  'Don\'t ask again',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: c.textMuted,
-                    decoration: TextDecoration.underline,
-                  ),
-                ),
-              ),
             ],
           ),
-        ),
+          const SizedBox(height: 10),
+          const PanelText('A flawless solve! If you like the game, a quick rating really helps us.'),
+          const SizedBox(height: 18),
+          CartoonButton(label: 'RATE 5 STARS', onTap: onRate),
+          const SizedBox(height: 4),
+          CartoonButton.secondary(label: 'MAYBE LATER', onTap: onLater),
+          TextButton(
+            onPressed: onNever,
+            child: const Text(
+              "Don't ask again",
+              style: TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w600, fontSize: 14, color: Color(0xFF8A7A9E)),
+            ),
+          ),
+        ],
       ),
     );
   }

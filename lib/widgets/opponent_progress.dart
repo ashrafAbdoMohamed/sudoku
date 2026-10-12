@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../game/ui_kit.dart';
 import '../theme/app_theme.dart';
 import '../models/online_room.dart';
 
@@ -15,159 +16,77 @@ class OpponentProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progressPercent = opponent.progressPercent;
+    final progress = opponent.progressPercent.clamp(0.0, 1.0);
     final statusColor = _getStatusColor();
-    final statusText = _getStatusText();
+    var detail = _getStatusText();
+    if (opponent.isPlaying) detail += ' · ${opponent.mistakes} ✗';
+    if (opponent.isFinished && opponent.finishTime != null) detail += ' · ${_formatTime(opponent.finishTime!)}';
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      height: 44,
+      padding: const EdgeInsets.fromLTRB(5, 5, 12, 5),
       decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: statusColor.withValues(alpha: 0.15),
-            blurRadius: 12,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        color: Colors.white.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [BoxShadow(color: Color(0x33000000), offset: Offset(0, 3))],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              // Opponent avatar
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [statusColor, statusColor.withValues(alpha: 0.7)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  shape: BoxShape.circle,
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  opponent.name.isNotEmpty ? opponent.name[0].toUpperCase() : '?',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              // Name and status
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      opponent.name,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: colors.text,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        _statusDot(statusColor),
-                        const SizedBox(width: 5),
-                        Text(
-                          statusText,
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: statusColor,
-                          ),
-                        ),
-                        if (opponent.isPlaying) ...[
-                          Text(
-                            ' • ${opponent.mistakes} mistake${opponent.mistakes == 1 ? '' : 's'}',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: colors.textMuted,
-                            ),
-                          ),
-                        ],
-                        if (opponent.isFinished && opponent.finishTime != null) ...[
-                          Text(
-                            ' • ${_formatTime(opponent.finishTime!)}',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: colors.primary,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              // Progress percentage
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${(progressPercent * 100).toInt()}%',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: statusColor,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          // Progress bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: progressPercent,
-              minHeight: 6,
-              backgroundColor: colors.surface2,
-              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: statusColor,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+            alignment: Alignment.center,
+            child: OutlinedText(
+              opponent.name.isNotEmpty ? opponent.name[0].toUpperCase() : '?',
+              size: 16,
+              stroke: Color.lerp(statusColor, Colors.black, 0.45)!,
+              strokeWidth: 3,
             ),
           ),
-          const SizedBox(height: 4),
-          // Cells filled
-          Text(
-            '${opponent.progress}/81 cells',
-            style: TextStyle(
-              fontSize: 9,
-              color: colors.textMuted,
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 92,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  opponent.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 14, height: 1.1, color: Color(0xFF3D2B7A)),
+                ),
+                Text(
+                  detail,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w600, fontSize: 11, height: 1.1, color: statusColor),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _statusDot(Color color) {
-    return Container(
-      width: 6,
-      height: 6,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: color,
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.5),
-            blurRadius: 4,
+          const SizedBox(width: 6),
+          Expanded(
+            child: Container(
+              height: 16,
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(color: const Color(0xFFF3EBDD), borderRadius: BorderRadius.circular(8)),
+              alignment: Alignment.centerLeft,
+              child: FractionallySizedBox(
+                widthFactor: progress == 0 ? 0.02 : progress,
+                child: Container(
+                  decoration: BoxDecoration(color: const Color(0xFFFF8A3D), borderRadius: BorderRadius.circular(6)),
+                ),
+              ),
+            ),
           ),
+          const SizedBox(width: 8),
+          Text('${(progress * 100).toInt()}%', style: const TextStyle(fontFamily: kTitleFont, fontSize: 16, color: Color(0xFFFF8A3D))),
         ],
       ),
     );
@@ -176,12 +95,12 @@ class OpponentProgressBar extends StatelessWidget {
   Color _getStatusColor() {
     if (opponent.isFinished) {
       return opponent.finishTime != null
-          ? const Color(0xFF10B981) // Green for finished
-          : const Color(0xFFEF4444); // Red for lost
+          ? const Color(0xFF3FB26B) // Green for finished
+          : const Color(0xFFF25A6B); // Red for lost
     }
-    if (opponent.isDisconnected) return const Color(0xFF6B7280); // Gray
-    if (opponent.isPlaying) return const Color(0xFF3B82F6); // Blue
-    return const Color(0xFFF59E0B); // Yellow for waiting
+    if (opponent.isDisconnected) return const Color(0xFF7C8DB5); // Gray
+    if (opponent.isPlaying) return const Color(0xFF4D7CFE); // Blue
+    return const Color(0xFFFF9F43); // Orange for waiting
   }
 
   String _getStatusText() {

@@ -7,6 +7,10 @@ import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../services/leaderboard_service.dart';
 import '../screens/game_screen.dart';
+import '../game/cartoon_dialog.dart';
+import '../game/fx.dart';
+import '../game/ui_kit.dart';
+import '../services/sound_service.dart';
 
 class AchievementsModal extends StatefulWidget {
   final GameStore store;
@@ -49,18 +53,19 @@ class _AchievementsModalState extends State<AchievementsModal>
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: c.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 40),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 500, maxHeight: 650),
+    final height = (MediaQuery.sizeOf(context).height * 0.72).clamp(380.0, 620.0);
+    return CartoonPanel(
+      title: 'AWARDS',
+      color: const Color(0xFFFFB020),
+      onClose: () => Navigator.pop(context),
+      width: 440,
+      padding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+      child: SizedBox(
+        height: height,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            _buildHeader(),
             _buildMainTabs(),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Expanded(
               child: TabBarView(
                 controller: _mainTabController,
@@ -77,97 +82,33 @@ class _AchievementsModalState extends State<AchievementsModal>
     );
   }
 
-  Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              const Text('🏆', style: TextStyle(fontSize: 28)),
-              const SizedBox(width: 12),
-              Text(
-                'Compete',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                  color: c.text,
-                ),
-              ),
-            ],
-          ),
-          GestureDetector(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              Navigator.pop(context);
-            },
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: c.surface2,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.close, size: 20, color: c.textMuted),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildMainTabs() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
+      height: 46,
+      margin: const EdgeInsets.symmetric(horizontal: 14),
+      padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: c.surface2,
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFF3E4C8),
+        borderRadius: BorderRadius.circular(23),
       ),
       child: TabBar(
         controller: _mainTabController,
-        labelColor: c.primary,
-        unselectedLabelColor: c.textMuted,
-        labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-        unselectedLabelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        labelColor: Colors.white,
+        unselectedLabelColor: const Color(0xFF8A7A9E),
+        labelStyle: const TextStyle(fontFamily: kTitleFont, fontSize: 14, letterSpacing: 0.5),
+        unselectedLabelStyle: const TextStyle(fontFamily: kTitleFont, fontSize: 14, letterSpacing: 0.5),
         indicatorSize: TabBarIndicatorSize.tab,
         indicator: BoxDecoration(
-          color: c.surface,
-          borderRadius: BorderRadius.circular(10),
-          boxShadow: [
-            BoxShadow(
-              color: c.primary.withValues(alpha: 0.2),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
+          color: const Color(0xFFFF8A3D),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: const [BoxShadow(color: Color(0xFFB4561A), offset: Offset(0, 3))],
         ),
-        indicatorPadding: const EdgeInsets.all(4),
         dividerColor: Colors.transparent,
+        onTap: (_) => SoundService().playTap(),
         tabs: const [
-          Tab(child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('🎖️', style: TextStyle(fontSize: 14)),
-              SizedBox(width: 2),
-              FittedBox(child: Text('Achievements')),
-            ],
-          )),
-          Tab(child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('📊', style: TextStyle(fontSize: 14)),
-              SizedBox(width: 2),
-              FittedBox(child: Text('Leaderboard')),
-            ],
-          )),
-          Tab(child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('🏅', style: TextStyle(fontSize: 14)),
-              SizedBox(width: 2),
-              FittedBox(child: Text('Tournaments')),
-            ],
-          )),
+          Tab(child: FittedBox(child: Text('AWARDS'))),
+          Tab(child: FittedBox(child: Text('RANKING'))),
+          Tab(child: FittedBox(child: Text('EVENTS'))),
         ],
       ),
     );
@@ -250,7 +191,7 @@ class _AchievementsTabState extends State<_AchievementsTab>
                   value: progress,
                   minHeight: 8,
                   backgroundColor: c.surface2,
-                  valueColor: AlwaysStoppedAnimation<Color>(c.primary),
+                  valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFB020)),
                 ),
               ),
             ],
@@ -265,8 +206,8 @@ class _AchievementsTabState extends State<_AchievementsTab>
             isScrollable: true,
             labelColor: c.primary,
             unselectedLabelColor: c.textMuted,
-            labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
-            unselectedLabelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+            labelStyle: const TextStyle(fontFamily: kBodyFont, fontSize: 13, fontWeight: FontWeight.w700),
+            unselectedLabelStyle: const TextStyle(fontFamily: kBodyFont, fontSize: 13, fontWeight: FontWeight.w600),
             indicatorSize: TabBarIndicatorSize.label,
             indicatorColor: c.primary,
             dividerColor: Colors.transparent,
@@ -324,31 +265,30 @@ class _AchievementsTabState extends State<_AchievementsTab>
 
   Widget _buildAchievementCard(Achievement achievement, bool isUnlocked) {
     final isSecret = achievement.isSecret && !isUnlocked;
-
+    final color = isUnlocked ? achievement.rarityColor : const Color(0xFFB9C3CF);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(10, 8, 12, 8),
       decoration: BoxDecoration(
-        color: isUnlocked ? c.surface : c.surface2.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isUnlocked ? c.primary : c.border,
-          width: isUnlocked ? 2 : 1,
-        ),
+        color: isUnlocked ? Colors.white : const Color(0xFFF7F1E6),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: isUnlocked ? color : const Color(0xFFF0DFC0), width: 2),
+        boxShadow: [BoxShadow(color: isUnlocked ? color.withValues(alpha: 0.35) : const Color(0xFFF0DFC0), offset: const Offset(0, 3))],
       ),
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 46,
+            height: 46,
             decoration: BoxDecoration(
-              color: isUnlocked ? c.primary.withValues(alpha: 0.12) : c.surface2,
-              borderRadius: BorderRadius.circular(10),
+              color: color.withValues(alpha: isUnlocked ? 0.2 : 0.3),
+              shape: BoxShape.circle,
+              border: Border.all(color: isUnlocked ? color : Colors.white, width: 2),
             ),
             alignment: Alignment.center,
-            child: Text(
-              isSecret ? '❓' : achievement.icon,
-              style: const TextStyle(fontSize: 22),
+            child: Opacity(
+              opacity: isUnlocked ? 1 : 0.45,
+              child: Text(isSecret ? '❓' : achievement.icon, style: const TextStyle(fontSize: 22)),
             ),
           ),
           const SizedBox(width: 12),
@@ -359,22 +299,23 @@ class _AchievementsTabState extends State<_AchievementsTab>
                 Text(
                   isSecret ? '???' : achievement.name,
                   style: TextStyle(
-                    fontSize: 14,
+                    fontFamily: kBodyFont,
+                    fontSize: 15,
                     fontWeight: FontWeight.w700,
-                    color: isUnlocked ? c.text : c.textMuted,
+                    color: isUnlocked ? CartoonPanel.ink : const Color(0xFF8A7A9E),
                   ),
                 ),
                 Text(
                   isSecret ? 'Complete a secret challenge' : achievement.description,
-                  style: TextStyle(fontSize: 11, color: c.textMuted),
+                  style: const TextStyle(fontFamily: kBodyFont, fontSize: 12, fontWeight: FontWeight.w500, color: Color(0xFF8A7A9E)),
                 ),
               ],
             ),
           ),
           if (isUnlocked)
-            Icon(Icons.check_circle, color: c.primary, size: 22)
+            const GameIcon(GameIcons.star, size: 28)
           else
-            Icon(Icons.lock_outline, color: c.textMuted, size: 18),
+            const GameIcon(GameIcons.lock, size: 24, greyed: true),
         ],
       ),
     );
@@ -505,7 +446,7 @@ class _LeaderboardTabState extends State<_LeaderboardTab>
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)],
+                colors: [Color(0xFFFFB020), Color(0xFFFF8A3D)],
               ),
               borderRadius: BorderRadius.circular(12),
             ),
@@ -775,104 +716,84 @@ class _TournamentsTabState extends State<_TournamentsTab> {
     final timeRemaining = tournament.timeRemaining;
     final hours = timeRemaining.inHours;
     final minutes = timeRemaining.inMinutes % 60;
-
-    final diffEmoji = {'easy': '🟢', 'medium': '🟡', 'hard': '🟠', 'expert': '🔴'}[tournament.difficulty] ?? '🟡';
+    final color = isDaily ? const Color(0xFF8E5BEA) : const Color(0xFFFF8A3D);
+    final dark = Color.lerp(color, Colors.black, 0.4)!;
+    final diff = '${tournament.difficulty[0].toUpperCase()}${tournament.difficulty.substring(1)}';
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: isDaily
-              ? [const Color(0xFF4F6EF7), const Color(0xFF7C3AED)]
-              : [const Color(0xFFF59E0B), const Color(0xFFEF4444)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color.lerp(color, Colors.white, 0.2)!, color],
         ),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white, width: 3),
+        boxShadow: [BoxShadow(color: dark, offset: const Offset(0, 5))],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    isDaily ? '📅 Daily Challenge' : '📆 Weekly Challenge',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Text(diffEmoji, style: const TextStyle(fontSize: 12)),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${tournament.difficulty[0].toUpperCase()}${tournament.difficulty.substring(1)}',
-                        style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.8)),
-                      ),
-                    ],
-                  ),
-                ],
+              Text(isDaily ? '📅' : '🗓️', style: const TextStyle(fontSize: 26)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    FittedBox(child: OutlinedText(isDaily ? 'DAILY EVENT' : 'WEEKLY EVENT', size: 20, stroke: dark)),
+                    Text(
+                      '$diff puzzle · fastest time wins',
+                      style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w600, fontSize: 12, color: Colors.white),
+                    ),
+                  ],
+                ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  isDaily ? '${hours}h ${minutes}m left' : '${timeRemaining.inDays}d ${hours % 24}h left',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(color: dark.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(10)),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.timer_rounded, color: Colors.white, size: 14),
+                    const SizedBox(width: 3),
+                    Text(
+                      isDaily ? '${hours}h ${minutes}m' : '${timeRemaining.inDays}d ${hours % 24}h',
+                      style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 12, color: Colors.white),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
           if (userEntry != null) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.22), borderRadius: BorderRadius.circular(12)),
               child: Row(
                 children: [
-                  const Icon(Icons.check_circle, color: Colors.white, size: 18),
-                  const SizedBox(width: 8),
+                  const GameIcon(GameIcons.trophy, size: 20),
+                  const SizedBox(width: 6),
                   Text(
-                    'Your Best: ${_service.formatTime(userEntry.time)}',
-                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
+                    'Your best ${_service.formatTime(userEntry.time)}',
+                    style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white),
                   ),
                   const Spacer(),
                   if (userRank != null)
-                    Text(
-                      'Rank #$userRank',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white.withValues(alpha: 0.9)),
-                    ),
+                    Text('#$userRank', style: const TextStyle(fontFamily: kTitleFont, fontSize: 18, color: Colors.white)),
                 ],
               ),
             ),
           ],
-          const SizedBox(height: 12),
-          GestureDetector(
+          const SizedBox(height: 10),
+          CartoonButton(
+            label: userEntry != null ? 'TRY AGAIN' : 'PLAY',
+            height: 48,
+            size: 19,
             onTap: () => _startTournament(tournament),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                userEntry != null ? 'Try Again' : 'Start Challenge',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color: isDaily ? const Color(0xFF4F6EF7) : const Color(0xFFF59E0B),
-                ),
-              ),
-            ),
           ),
         ],
       ),
@@ -898,75 +819,54 @@ class AchievementUnlockNotification extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              achievement.rarityColor.withValues(alpha: 0.9),
-              achievement.rarityColor,
+      child: Entrance(
+        from: const Offset(0, -0.6),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF8EA),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: [
+              BoxShadow(color: Color.lerp(achievement.rarityColor, Colors.black, 0.3)!, offset: const Offset(0, 5)),
+              const BoxShadow(color: Color(0x55000000), blurRadius: 16, offset: Offset(0, 8)),
             ],
           ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: achievement.rarityColor.withValues(alpha: 0.4),
-              blurRadius: 20,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              alignment: Alignment.center,
-              child: Text(achievement.icon, style: const TextStyle(fontSize: 26)),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Achievement Unlocked!',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white70),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    achievement.name,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.white),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    achievement.description,
-                    style: const TextStyle(fontSize: 11, color: Colors.white70),
-                  ),
-                ],
-              ),
-            ),
-            GestureDetector(
-              onTap: () {
-                HapticFeedback.lightImpact();
-                onDismiss();
-              },
-              child: Container(
-                padding: const EdgeInsets.all(6),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
+                  color: achievement.rarityColor.withValues(alpha: 0.2),
                   shape: BoxShape.circle,
+                  border: Border.all(color: achievement.rarityColor, width: 3),
                 ),
-                child: const Icon(Icons.close, size: 16, color: Colors.white),
+                alignment: Alignment.center,
+                child: Text(achievement.icon, style: const TextStyle(fontSize: 26)),
               ),
-            ),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('NEW AWARD!', style: TextStyle(fontFamily: kTitleFont, fontSize: 14, color: Color(0xFFFF8A3D), letterSpacing: 1)),
+                    Text(
+                      achievement.name,
+                      style: const TextStyle(fontFamily: kBodyFont, fontSize: 17, fontWeight: FontWeight.w700, color: CartoonPanel.ink),
+                    ),
+                    Text(
+                      achievement.description,
+                      style: const TextStyle(fontFamily: kBodyFont, fontSize: 12, fontWeight: FontWeight.w500, color: Color(0xFF8A7A9E)),
+                    ),
+                  ],
+                ),
+              ),
+              CloseBubble(onTap: onDismiss),
+            ],
+          ),
         ),
       ),
     );

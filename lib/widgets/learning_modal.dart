@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 import 'interactive_tutorial.dart';
+import '../game/cartoon_dialog.dart';
+import '../game/ui_kit.dart';
+import '../services/sound_service.dart';
 
 class LearningModal extends StatefulWidget {
   final AppColorScheme colors;
@@ -32,58 +34,64 @@ class _LearningModalState extends State<LearningModal> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: c.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 40),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 500, maxHeight: 650),
+    final height = (MediaQuery.sizeOf(context).height * 0.72).clamp(380.0, 620.0);
+    return CartoonPanel(
+      title: 'HOW TO PLAY',
+      color: const Color(0xFF3FB26B),
+      onClose: () => Navigator.pop(context),
+      width: 440,
+      padding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+      child: SizedBox(
+        height: height,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
-            // Header
-            _buildHeader(context),
-            // Interactive Tutorial Button
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: _buildTutorialButton(context),
-            ),
-            // Tabs
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: c.surface2,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: TabBar(
-                controller: _tabController,
-                labelColor: c.primary,
-                unselectedLabelColor: c.textMuted,
-                labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                unselectedLabelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                indicatorSize: TabBarIndicatorSize.tab,
-                indicator: BoxDecoration(
-                  color: c.surface,
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: [
-                    BoxShadow(
-                      color: c.primary.withValues(alpha: 0.2),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: CartoonButton(
+                label: 'TRY THE TUTORIAL',
+                color: const Color(0xFF8E5BEA),
+                icon: const Icon(Icons.school_rounded, color: Colors.white, size: 24),
+                onTap: () {
+                  Navigator.pop(context);
+                  showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (_) => InteractiveTutorial(
+                      colors: c,
+                      onComplete: () => widget.onTutorialComplete?.call(),
                     ),
-                  ],
-                ),
-                indicatorPadding: const EdgeInsets.all(4),
-                dividerColor: Colors.transparent,
-                tabs: const [
-                  Tab(text: 'Basics'),
-                  Tab(text: 'Techniques'),
-                  Tab(text: 'Tips'),
-                ],
+                  );
+                },
               ),
             ),
             const SizedBox(height: 8),
-            // Content
+            Container(
+              height: 46,
+              margin: const EdgeInsets.symmetric(horizontal: 14),
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(color: const Color(0xFFF3E4C8), borderRadius: BorderRadius.circular(23)),
+              child: TabBar(
+                controller: _tabController,
+                labelColor: Colors.white,
+                unselectedLabelColor: const Color(0xFF8A7A9E),
+                labelStyle: const TextStyle(fontFamily: kTitleFont, fontSize: 14, letterSpacing: 0.5),
+                unselectedLabelStyle: const TextStyle(fontFamily: kTitleFont, fontSize: 14, letterSpacing: 0.5),
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicator: BoxDecoration(
+                  color: const Color(0xFF3FB26B),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: const [BoxShadow(color: Color(0xFF1F6E3F), offset: Offset(0, 3))],
+                ),
+                dividerColor: Colors.transparent,
+                onTap: (_) => SoundService().playTap(),
+                tabs: const [
+                  Tab(child: FittedBox(child: Text('BASICS'))),
+                  Tab(child: FittedBox(child: Text('TRICKS'))),
+                  Tab(child: FittedBox(child: Text('TIPS'))),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
             Expanded(
               child: TabBarView(
                 controller: _tabController,
@@ -93,120 +101,6 @@ class _LearningModalState extends State<LearningModal> with SingleTickerProvider
                   _buildTipsTab(),
                 ],
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              const Text('📚', style: TextStyle(fontSize: 28)),
-              const SizedBox(width: 12),
-              Text(
-                'How to Play',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                  color: c.text,
-                ),
-              ),
-            ],
-          ),
-          GestureDetector(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              Navigator.pop(context);
-            },
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: c.surface2,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.close, size: 20, color: c.textMuted),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTutorialButton(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.mediumImpact();
-        Navigator.pop(context);
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => InteractiveTutorial(
-            colors: c,
-            onComplete: () {
-              widget.onTutorialComplete?.call();
-            },
-          ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)],
-          ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF4F6EF7).withValues(alpha: 0.3),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.school_rounded, color: Colors.white, size: 24),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Interactive Tutorial',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
-                  Text(
-                    'Learn by playing a mini puzzle',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white.withValues(alpha: 0.8),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(
-              Icons.arrow_forward_ios_rounded,
-              color: Colors.white.withValues(alpha: 0.8),
-              size: 18,
             ),
           ],
         ),
@@ -239,9 +133,10 @@ class _LearningModalState extends State<LearningModal> with SingleTickerProvider
             'Controls',
             '• Tap a cell to select it\n'
             '• Tap a number to fill the cell\n'
-            '• Use Notes mode to mark possible numbers\n'
-            '• Use Undo to fix mistakes\n'
-            '• Use Hint when stuck (use sparingly!)',
+            '• Notes: mark the numbers a cell could be\n'
+            '• Undo and Erase fix mistakes (5 mistakes ends the game)\n'
+            '• Hint (25 coins): shows the easiest cell to solve next\n'
+            '• Magic (60 coins): fills the selected cell for you',
           ),
           const SizedBox(height: 12),
           _sectionCard(
@@ -251,7 +146,7 @@ class _LearningModalState extends State<LearningModal> with SingleTickerProvider
             '• Arrow keys: Move selection\n'
             '• N: Toggle notes mode\n'
             '• Z: Undo\n'
-            '• H: Get hint\n'
+            '• H: Hint\n'
             '• Space: Pause/Resume',
           ),
         ],

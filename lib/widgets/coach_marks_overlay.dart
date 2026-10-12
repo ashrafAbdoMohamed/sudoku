@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../game/cartoon_dialog.dart';
+import '../game/ui_kit.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 
@@ -97,18 +99,15 @@ class _CoachMarksOverlayState extends State<CoachMarksOverlay>
               ),
             ),
 
-          // Tooltip
-          Positioned(
-            left: _getTooltipLeft(mark, screenSize),
-            top: _getTooltipTop(mark, screenSize),
-            child: AnimatedBuilder(
+          // Tooltip: on the preferred side of the target if it fits there,
+          // otherwise the other side, otherwise over the target's middle.
+          _placeTooltip(
+            mark,
+            MediaQuery.paddingOf(context),
+            screenSize,
+            AnimatedBuilder(
               animation: _fadeAnimation,
-              builder: (context, child) {
-                return Opacity(
-                  opacity: _fadeAnimation.value.clamp(0, 1),
-                  child: child,
-                );
-              },
+              builder: (context, child) => Opacity(opacity: _fadeAnimation.value.clamp(0, 1), child: child),
               child: _buildTooltip(mark),
             ),
           ),
@@ -124,42 +123,13 @@ class _CoachMarksOverlayState extends State<CoachMarksOverlay>
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+                  border: Border.all(color: Colors.white, width: 2),
                 ),
-                child: const Text(
-                  'Skip',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
+                child: const Text('SKIP', style: TextStyle(fontFamily: kTitleFont, fontSize: 16, color: Colors.white)),
               ),
             ),
           ),
 
-          // Progress indicator - account for safe area
-          Positioned(
-            bottom: MediaQuery.of(context).padding.bottom + 24,
-            left: 0,
-            right: 0,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(widget.marks.length, (i) {
-                return Container(
-                  width: i == _currentIndex ? 24 : 8,
-                  height: 8,
-                  margin: const EdgeInsets.symmetric(horizontal: 3),
-                  decoration: BoxDecoration(
-                    color: i == _currentIndex
-                        ? Colors.white
-                        : Colors.white.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                );
-              }),
-            ),
-          ),
           ],
         ),
       ),
@@ -167,7 +137,7 @@ class _CoachMarksOverlayState extends State<CoachMarksOverlay>
   }
 
   double _getTooltipLeft(CoachMark mark, Size screenSize) {
-    final tooltipWidth = 280.0;
+    final tooltipWidth = 290.0;
     double left;
 
     switch (mark.position) {
@@ -187,31 +157,36 @@ class _CoachMarksOverlayState extends State<CoachMarksOverlay>
     return left.clamp(16, screenSize.width - tooltipWidth - 16);
   }
 
-  double _getTooltipTop(CoachMark mark, Size screenSize) {
-    switch (mark.position) {
-      case TooltipPosition.below:
-        return mark.targetRect.bottom + 20;
-      case TooltipPosition.above:
-        return mark.targetRect.top - 160;
-      case TooltipPosition.left:
-      case TooltipPosition.right:
-        return mark.targetRect.center.dy - 60;
+  static const _tooltipHeight = 230.0;
+
+  Widget _placeTooltip(CoachMark mark, EdgeInsets safe, Size screen, Widget child) {
+    final left = _getTooltipLeft(mark, screen);
+    final spaceAbove = mark.targetRect.top - safe.top - 16;
+    final spaceBelow = screen.height - mark.targetRect.bottom - safe.bottom - 16;
+    var above = mark.position == TooltipPosition.above;
+    if (above && spaceAbove < _tooltipHeight && spaceBelow >= _tooltipHeight) above = false;
+    if (!above && spaceBelow < _tooltipHeight && spaceAbove >= _tooltipHeight) above = true;
+    final fits = above ? spaceAbove >= _tooltipHeight : spaceBelow >= _tooltipHeight;
+    if (!fits) {
+      return Positioned(left: left, top: (mark.targetRect.center.dy - _tooltipHeight / 2).clamp(safe.top + 60, screen.height), child: child);
     }
+    return above
+        ? Positioned(left: left, bottom: screen.height - mark.targetRect.top + 16, child: child)
+        : Positioned(left: left, top: mark.targetRect.bottom + 16, child: child);
   }
 
   Widget _buildTooltip(CoachMark mark) {
+    final last = _currentIndex >= widget.marks.length - 1;
     return Container(
-      width: 280,
-      padding: const EdgeInsets.all(20),
+      width: 290,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
       decoration: BoxDecoration(
-        color: c.surface,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
+        color: const Color(0xFFFFF8EA),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white, width: 3),
+        boxShadow: const [
+          BoxShadow(color: Color(0xFF6A4FB0), offset: Offset(0, 5)),
+          BoxShadow(color: Color(0x55000000), blurRadius: 18, offset: Offset(0, 10)),
         ],
       ),
       child: Column(
@@ -221,51 +196,37 @@ class _CoachMarksOverlayState extends State<CoachMarksOverlay>
           Row(
             children: [
               Text(mark.icon, style: const TextStyle(fontSize: 28)),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  mark.title,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: c.text,
-                  ),
-                ),
+                child: Text(mark.title.toUpperCase(), style: const TextStyle(fontFamily: kTitleFont, fontSize: 19, color: Color(0xFF8E5BEA))),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Text(
             mark.description,
-            style: TextStyle(
-              fontSize: 14,
-              color: c.textMuted,
-              height: 1.4,
-            ),
+            style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w600, fontSize: 15, height: 1.3, color: Color(0xFF5B4B7A)),
           ),
-          const SizedBox(height: 16),
-          GestureDetector(
-            onTap: _next,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF4F6EF7), Color(0xFFA855F7)],
+          const SizedBox(height: 12),
+          // Progress dots sit in their own row, clear of the button.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var i = 0; i < widget.marks.length; i++)
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: i == _currentIndex ? 22 : 8,
+                  height: 8,
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  decoration: BoxDecoration(
+                    color: i == _currentIndex ? const Color(0xFF8E5BEA) : const Color(0xFFE2D6F5),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                _currentIndex < widget.marks.length - 1 ? 'Next' : 'Got it!',
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-              ),
-            ),
+            ],
           ),
+          const SizedBox(height: 10),
+          CartoonButton(label: last ? 'GOT IT!' : 'NEXT', height: 48, size: 19, onTap: _next),
         ],
       ),
     );

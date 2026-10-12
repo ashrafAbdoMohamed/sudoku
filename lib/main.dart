@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+
+import 'game/ui_kit.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
@@ -15,7 +17,6 @@ import 'screens/home_screen.dart';
 import 'widgets/gdpr_consent_dialog.dart';
 import 'widgets/legal_modal.dart';
 import 'theme/app_theme.dart';
-import 'theme/board_themes.dart';
 
 bool _firebaseInitialized = false;
 
@@ -159,8 +160,7 @@ class _SudokuAppState extends State<SudokuApp> with WidgetsBindingObserver {
   }
 
   AppColorScheme get _colors {
-    final theme = ColorThemes.fromId(_store.colorThemeId);
-    return AppColors.fromColorTheme(theme, isDark: _store.isDark);
+    return AppColors.cartoon;
   }
 
   void _showPrivacyPolicy() {
@@ -181,7 +181,23 @@ class _SudokuAppState extends State<SudokuApp> with WidgetsBindingObserver {
       title: 'Sudoku',
       navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(fontFamily: 'Segoe UI'),
+      theme: ThemeData(
+        fontFamily: kBodyFont,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8E5BEA)),
+        snackBarTheme: const SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Color(0xFF3D2B7A),
+          contentTextStyle: TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w600, fontSize: 15, color: Colors.white),
+          shape: StadiumBorder(),
+        ),
+        switchTheme: SwitchThemeData(
+          thumbColor: WidgetStateProperty.all(Colors.white),
+          trackColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.selected) ? const Color(0xFF3FB26B) : const Color(0xFFD9D4E2),
+          ),
+          trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
+        ),
+      ),
       home: _showSplash
           ? SplashScreen(onComplete: () => setState(() => _showSplash = false))
           : !_loaded
