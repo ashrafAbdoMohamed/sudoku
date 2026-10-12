@@ -159,6 +159,7 @@ class _WinOverlayState extends State<_WinOverlay> with SingleTickerProviderState
           builder: (context, _) => CartoonPanel(
             title: widget.title,
             color: const Color(0xFF3FB26B),
+            scrollable: true,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [

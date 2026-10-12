@@ -853,6 +853,21 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (last != null) game.selectCell(last.$1, last.$2);
   }
 
+  /// Debug builds only: fills a few open cells, for store screenshots.
+  void _debugFillSome() {
+    if (game.gameOver || game.isGenerating) return;
+    _debugAssisted = true;
+    final open = <(int, int)>[
+      for (var r = 0; r < 9; r++)
+        for (var c = 0; c < 9; c++)
+          if (game.board[r][c] == 0) (r, c),
+    ]..shuffle(Random(7));
+    for (final (r, c) in open.take(14)) {
+      game.board[r][c] = game.solution[r][c];
+    }
+    if (open.length > 14) game.selectCell(open[14].$1, open[14].$2);
+  }
+
   void _notEnoughCoins() {
     _sound.playWrong();
     showFreeCoins(context, store, title: 'NOT ENOUGH COINS');
@@ -1025,6 +1040,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               children: [
                 GestureDetector(
                   onLongPress: kDebugMode ? _debugAlmostSolve : null,
+                  onDoubleTap: kDebugMode ? _debugFillSome : null,
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
                     child: OutlinedText(title, size: 28, stroke: GameBackdrop.ink),
@@ -1561,6 +1577,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       onShare: share,
     );
     if (!mounted) return;
+    await _showRatePromptIfDue();
+    if (!mounted) return;
     await maybeShowRankUp(context, store);
     if (!mounted) return;
     await _maybeShowInterstitialAd();
@@ -1645,7 +1663,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       spacing: 6,
       runSpacing: 6,
       children: [
-        for (final a in _endAchievements)
+        for (final a in _endAchievements.take(3))
           Container(
             padding: const EdgeInsets.fromLTRB(6, 4, 10, 4),
             decoration: BoxDecoration(
@@ -1663,6 +1681,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 13, color: Color(0xFF5B2EA6)),
                 ),
               ],
+            ),
+          ),
+        if (_endAchievements.length > 3)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(color: const Color(0xFF8E5BEA), borderRadius: BorderRadius.circular(14)),
+            child: Text(
+              '+${_endAchievements.length - 3} more',
+              style: const TextStyle(fontFamily: kBodyFont, fontWeight: FontWeight.w700, fontSize: 13, color: Colors.white),
             ),
           ),
       ],
@@ -1849,36 +1876,38 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     await _adService.maybeShowInterstitial();
   }
 
+  /// Set after a perfect win when it's time to ask for a rating; the
+  /// prompt waits until the win popup is closed.
+  bool _ratePromptDue = false;
+
   Future<void> _checkRatePrompt() async {
-    final shouldPrompt = await _rateAppService.recordPerfectWin();
-    if (shouldPrompt && mounted) {
-      // Delay slightly to not interrupt win celebration
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        if (mounted) {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (_) => RateAppDialog(
-              colors: colors,
-              onRate: () async {
-                Navigator.pop(context);
-                await _rateAppService.requestReview();
-              },
-              onLater: () {
-                Navigator.pop(context);
-                _rateAppService.dismissPrompt();
-              },
-              onNever: () async {
-                Navigator.pop(context);
-                // Mark as "rated" so we never ask again
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setBool('has_rated_app', true);
-              },
-            ),
-          );
-        }
-      });
-    }
+    _ratePromptDue = await _rateAppService.recordPerfectWin();
+  }
+
+  Future<void> _showRatePromptIfDue() async {
+    if (!_ratePromptDue || !mounted) return;
+    _ratePromptDue = false;
+    await showCartoonDialog<void>(
+      context,
+      dismissible: false,
+      builder: (dialogContext) => RateAppDialog(
+        colors: colors,
+        onRate: () async {
+          Navigator.pop(dialogContext);
+          await _rateAppService.requestReview();
+        },
+        onLater: () {
+          Navigator.pop(dialogContext);
+          _rateAppService.dismissPrompt();
+        },
+        onNever: () async {
+          Navigator.pop(dialogContext);
+          // Mark as "rated" so we never ask again
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('has_rated_app', true);
+        },
+      ),
+    );
   }
 
   String _fmtTime(int s) => '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
