@@ -184,7 +184,7 @@ class _SettingsModalState extends State<SettingsModal> {
           const SizedBox(height: 8),
           const Center(
             child: Text(
-              'Sudoku v1.0.3',
+              'Sudoku v1.0.4',
               style: TextStyle(fontFamily: kBodyFont, fontSize: 12, color: Color(0xFF8A7A9E)),
             ),
           ),
