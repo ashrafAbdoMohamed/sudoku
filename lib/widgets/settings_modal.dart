@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -18,13 +19,7 @@ class SettingsModal extends StatefulWidget {
   final VoidCallback onToggleTheme;
   final VoidCallback? onProfileUpdate;
 
-  const SettingsModal({
-    super.key,
-    required this.store,
-    required this.colors,
-    required this.onToggleTheme,
-    this.onProfileUpdate,
-  });
+  const SettingsModal({super.key, required this.store, required this.colors, required this.onToggleTheme, this.onProfileUpdate});
 
   @override
   State<SettingsModal> createState() => _SettingsModalState();
@@ -71,12 +66,12 @@ class _SettingsModalState extends State<SettingsModal> {
   Color _parseColor(String hex) => Color(int.parse('FF${hex.replaceAll('#', '')}', radix: 16));
 
   Widget _switch(bool value, ValueChanged<bool> onChanged) => Switch(
-        value: value,
-        onChanged: (v) {
-          HapticFeedback.selectionClick();
-          onChanged(v);
-        },
-      );
+    value: value,
+    onChanged: (v) {
+      HapticFeedback.selectionClick();
+      onChanged(v);
+    },
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -105,24 +100,28 @@ class _SettingsModalState extends State<SettingsModal> {
             title: 'Vibration',
             trailing: _switch(store.hapticEnabled, (_) => setState(store.toggleHaptic)),
           ),
-          PanelRow.emoji(
-            '🔔',
-            iconColor: const Color(0xFFFF9F43),
-            title: 'Daily reminder',
-            subtitle: store.dailyRemindersEnabled
-                ? 'Every day at ${NotificationService.reminderHour - 12}:00 PM'
-                : _remindersBlocked
-                    ? 'Allow notifications in system settings'
-                    : 'Off',
-            trailing: _switch(store.dailyRemindersEnabled, (v) async {
-              if (v) {
-                final granted = await NotificationService().enableReminders(store, source: 'settings');
-                _remindersBlocked = !granted;
-              } else {
-                await NotificationService().disableReminders(store);
-              }
-              if (mounted) setState(() {});
-            }),
+          GestureDetector(
+            // Debug builds: long-press sends every kind of reminder, 5s apart.
+            onLongPress: kDebugMode ? NotificationService().debugPreview : null,
+            child: PanelRow.emoji(
+              '🔔',
+              iconColor: const Color(0xFFFF9F43),
+              title: 'Reminders',
+              subtitle: store.dailyRemindersEnabled
+                  ? 'Daily puzzle and streak, max one a day'
+                  : _remindersBlocked
+                  ? 'Allow notifications in system settings'
+                  : 'Off',
+              trailing: _switch(store.dailyRemindersEnabled, (v) async {
+                if (v) {
+                  final granted = await NotificationService().enableReminders(store, source: 'settings');
+                  _remindersBlocked = !granted;
+                } else {
+                  await NotificationService().disableReminders(store);
+                }
+                if (mounted) setState(() {});
+              }),
+            ),
           ),
           const PanelSection('Help'),
           PanelRow.emoji(
@@ -142,7 +141,10 @@ class _SettingsModalState extends State<SettingsModal> {
             subtitle: '${store.unlockedCount}/${store.totalAchievements} unlocked',
             onTap: () {
               Navigator.pop(context);
-              showCartoonDialog<void>(context, builder: (_) => AchievementsModal(store: store, colors: c));
+              showCartoonDialog<void>(
+                context,
+                builder: (_) => AchievementsModal(store: store, colors: c),
+              );
             },
           ),
           PanelRow.emoji(
@@ -152,12 +154,7 @@ class _SettingsModalState extends State<SettingsModal> {
             subtitle: 'Enjoying it? A review helps a lot!',
             onTap: () => RateAppService().openStoreListing(),
           ),
-          PanelRow.emoji(
-            '📤',
-            iconColor: const Color(0xFF4D7CFE),
-            title: 'Share with friends',
-            onTap: () => ShareService().shareApp(),
-          ),
+          PanelRow.emoji('📤', iconColor: const Color(0xFF4D7CFE), title: 'Share with friends', onTap: () => ShareService().shareApp()),
           const PanelSection('Privacy'),
           PanelRow.emoji(
             '🔒',
@@ -186,7 +183,10 @@ class _SettingsModalState extends State<SettingsModal> {
           ),
           const SizedBox(height: 8),
           const Center(
-            child: Text('Sudoku v1.0.3', style: TextStyle(fontFamily: kBodyFont, fontSize: 12, color: Color(0xFF8A7A9E))),
+            child: Text(
+              'Sudoku v1.0.3',
+              style: TextStyle(fontFamily: kBodyFont, fontSize: 12, color: Color(0xFF8A7A9E)),
+            ),
           ),
         ],
       ),
@@ -254,17 +254,8 @@ class _SettingsModalState extends State<SettingsModal> {
             ],
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final color in avatarColors) _avatarDot(color),
-            ],
-          ),
-          if (_profileChanged) ...[
-            const SizedBox(height: 12),
-            CartoonButton(label: 'SAVE', height: 48, size: 19, onTap: _saveProfile),
-          ],
+          Wrap(spacing: 8, runSpacing: 8, children: [for (final color in avatarColors) _avatarDot(color)]),
+          if (_profileChanged) ...[const SizedBox(height: 12), CartoonButton(label: 'SAVE', height: 48, size: 19, onTap: _saveProfile)],
         ],
       ),
     );

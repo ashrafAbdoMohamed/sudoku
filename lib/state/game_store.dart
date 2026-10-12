@@ -161,7 +161,8 @@ class GameStore extends ChangeNotifier {
   bool adsConsent = false;
 
   // Daily challenge reminders (local notifications)
-  bool dailyRemindersEnabled = false;
+  /// Reminders are on by default (shown once the system allows them).
+  bool dailyRemindersEnabled = true;
   bool reminderPromptShown = false;
 
   // Theme Settings
@@ -397,7 +398,9 @@ class GameStore extends ChangeNotifier {
         adsConsent = j['adsConsent'] ?? false;
 
         // Reminders
-        dailyRemindersEnabled = j['dailyRemindersEnabled'] ?? false;
+        // Stored under a new key: the old one defaulted to off, so every
+        // existing player gets the on-by-default reminders once.
+        dailyRemindersEnabled = j['remindersOn'] ?? true;
         reminderPromptShown = j['reminderPromptShown'] ?? false;
 
         // Theme Settings
@@ -491,7 +494,7 @@ class GameStore extends ChangeNotifier {
       'analyticsConsent': analyticsConsent,
       'adsConsent': adsConsent,
       // Reminders
-      'dailyRemindersEnabled': dailyRemindersEnabled,
+      'remindersOn': dailyRemindersEnabled,
       'reminderPromptShown': reminderPromptShown,
       // Theme Settings
       'colorThemeId': colorThemeId,

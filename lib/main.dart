@@ -116,6 +116,7 @@ class _SudokuAppState extends State<SudokuApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // The app can sit in memory across days - refresh reminders on return
     if (state == AppLifecycleState.resumed && _loaded) {
+      NotificationService().onResumed();
       NotificationService().reschedule(_store);
     }
   }

@@ -76,7 +76,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }) {
     widget.gameState.newGame(diff, seed: seed, pin: pin, online: isOnline, isDaily: isDaily, journeyLevel: journeyLevel);
     AnalyticsService().logGameStart(difficulty: diff, mode: widget.gameState.mode);
-    return Navigator.of(context).push(
+    final route = Navigator.of(context).push(
       FadeScaleRoute(
         builder: (_) => GameScreen(
           store: store,
@@ -87,6 +87,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+    return route.then((_) => _afterGame());
   }
 
   void _playJourneyLevel(int level) {
@@ -129,18 +130,14 @@ class _HomeScreenState extends State<HomeScreen> {
       diff: DailyChallenge.todayDifficulty,
       seed: DailyChallenge.todaySeed,
       isDaily: true,
-    ).then((_) => _afterDailyChallenge());
+    );
   }
 
-  void _afterDailyChallenge() {
+  /// After any game: refresh reminders, and ask for notification permission
+  /// once the player has solved a couple of puzzles.
+  void _afterGame() {
     if (!mounted) return;
-    NotificationService().reschedule(store);
-    // Offer reminders once, right after the first solved daily - the moment
-    // the player has a streak worth protecting
-    if (store.hasCompletedDailyToday && !store.dailyRemindersEnabled && !store.reminderPromptShown) {
-      store.markReminderPromptShown();
-      _showReminderPrompt();
-    }
+    NotificationService().maybeAskPermission(store, _showReminderPrompt);
   }
 
   void _openJourney() {
@@ -154,34 +151,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ─── Popups ───
 
-  void _showReminderPrompt() {
-    showCartoonDialog<void>(
+  /// Our own "want reminders?" popup, shown before the system one.
+  /// True if the player said yes.
+  Future<bool> _showReminderPrompt() async {
+    final yes = await showCartoonDialog<bool>(
       context,
+      dismissible: false,
       builder: (dialogContext) => CartoonPanel(
-        title: 'DAILY REMINDER',
+        title: 'STAY ON TRACK',
         color: const Color(0xFFFF9F43),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text('🔔', style: TextStyle(fontSize: 56)),
             const SizedBox(height: 6),
-            PanelText(
-              "Get one reminder at ${NotificationService.reminderHour - 12}:00 PM on days you haven't played yet, so your streak stays alive.",
+            const PanelText(
+              "Get a friendly reminder when a new Daily Challenge is ready or your streak is about to end. Never more than one a day.",
             ),
             const SizedBox(height: 18),
-            CartoonButton(
-              label: 'REMIND ME',
-              onTap: () async {
-                Navigator.pop(dialogContext);
-                await NotificationService().enableReminders(store, source: 'prompt');
-              },
-            ),
+            CartoonButton(label: 'YES, REMIND ME', onTap: () => Navigator.pop(dialogContext, true)),
             const SizedBox(height: 4),
-            CartoonButton.secondary(label: 'NOT NOW', onTap: () => Navigator.pop(dialogContext)),
+            CartoonButton.secondary(label: 'NOT NOW', onTap: () => Navigator.pop(dialogContext, false)),
           ],
         ),
       ),
     );
+    return yes ?? false;
   }
 
   void _showAchievements() {
