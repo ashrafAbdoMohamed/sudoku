@@ -396,6 +396,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   void _handleOpponentStatusChange(String? previousStatus, String newStatus) {
     if (previousStatus == newStatus) return;
+    // Our own game is over (won or lost): the result card already says how
+    // the race went, so don't stack "opponent finished/left" popups on it.
+    if (game.gameOver) return;
 
     // Ignore transitions from null/waiting - these are initial states
     if (previousStatus == null || previousStatus == 'waiting') {
@@ -935,7 +938,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             children: [
               const Positioned.fill(child: GameBackdrop()),
               SafeArea(
-                child: Column(
+                child: LayoutBuilder(
+                  builder: (context, screen) => Column(
                   children: [
                     Expanded(
                       child: Center(
@@ -955,18 +959,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                 Expanded(
                                   child: LayoutBuilder(
                                     builder: (context, constraints) {
-                                      // Keys and tools keep their size; the board gets the rest.
-                                      const controls = 166.0;
-                                      final board = min(constraints.maxWidth, constraints.maxHeight - controls - 24);
+                                      // The board comes first: on short screens the keys and
+                                      // tools shrink (down to 72%) before it does.
+                                      final room = constraints.maxHeight - 24;
+                                      final k = ((room - constraints.maxWidth) / _controlsHeight).clamp(_minControls, 1.0);
+                                      final board = min(constraints.maxWidth, room - _controlsHeight * k);
                                       return Center(
                                         child: Column(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             SizedBox.square(dimension: board, child: KeyedSubtree(key: _boardKey, child: _buildBoard())),
-                                            const SizedBox(height: 14),
-                                            KeyedSubtree(key: _numpadKey, child: _buildNumpad()),
-                                            const SizedBox(height: 10),
-                                            _buildTools(),
+                                            SizedBox(height: 14 * k),
+                                            KeyedSubtree(key: _numpadKey, child: _buildNumpad(k)),
+                                            SizedBox(height: 10 * k),
+                                            _buildTools(k),
                                           ],
                                         ),
                                       );
@@ -979,8 +985,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         ),
                       ),
                     ),
-                    BannerAdWidget(key: ValueKey(_adService.isInitialized)),
+                    // Slim 320x50 strip, and only where the board can stay big.
+                    if (_boardKeepsSizeWithBanner(screen))
+                      BannerAdWidget(key: ValueKey(_adService.isInitialized), standard: true),
                   ],
+                  ),
                 ),
               ),
               if (_showConfetti) const Positioned.fill(child: IgnorePointer(child: ConfettiBurst())),
@@ -1337,21 +1346,40 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   /// Nine rainbow keys; each shows how many of its number are still to place.
-  Widget _buildNumpad() {
+  /// Number keys + tools + their gaps at full size.
+  static const _controlsHeight = 58.0 + 62 + 14 + 10 + 22;
+
+  /// How far the keys and tools may shrink to keep the board big.
+  static const _minControls = 0.72;
+
+  /// Chrome above the board: top bar, status strip and paddings.
+  double get _chromeHeight => 54 + 8 + 46 + 14 + (isOnline && _opponent != null ? 46 : 0);
+
+  /// The in-game banner shows only if the board still gets at least 85% of
+  /// the width with it; short phones skip it, the board matters more.
+  bool _boardKeepsSizeWithBanner(BoxConstraints screen) {
+    const banner = 50.0;
+    final width = min(screen.maxWidth, 480.0) - 24;
+    final room = screen.maxHeight - banner - _chromeHeight - 24;
+    final board = min(width, room - _controlsHeight * _minControls);
+    return board >= width * 0.85;
+  }
+
+  Widget _buildNumpad([double k = 1]) {
     return Row(
       children: [
         for (var n = 1; n <= 9; n++)
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: _numberKey(n),
+              child: _numberKey(n, k),
             ),
           ),
       ],
     );
   }
 
-  Widget _numberKey(int n) {
+  Widget _numberKey(int n, [double k = 1]) {
     final left = 9 - game.countForNumber(n);
     final done = left <= 0;
     final base = _keyColors[n - 1];
@@ -1362,7 +1390,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             : base;
     return ChunkyButton(
       color: color,
-      height: 58,
+      height: 58 * k,
       radius: 14,
       depth: 5,
       onTap: done
@@ -1371,7 +1399,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               _sound.playInput();
               game.inputNumber(n);
             },
-      child: Column(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           done
@@ -1384,16 +1414,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ),
         ],
       ),
+      ),
     );
   }
 
-  Widget _buildTools() {
+  Widget _buildTools([double k = 1]) {
     return Row(
       children: [
         Expanded(
           child: KeyedSubtree(
             key: _undoKey,
             child: _tool(
+              k: k,
               color: const Color(0xFF4D7CFE),
               icon: const Icon(Icons.undo_rounded, color: Colors.white, size: 30),
               label: 'UNDO',
@@ -1408,6 +1440,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           child: KeyedSubtree(
             key: _eraseKey,
             child: _tool(
+              k: k,
               color: const Color(0xFF1FB5A8),
               icon: const Icon(Icons.backspace_rounded, color: Colors.white, size: 26),
               label: 'ERASE',
@@ -1422,6 +1455,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           child: KeyedSubtree(
             key: _notesKey,
             child: _tool(
+              k: k,
               color: const Color(0xFF8E5BEA),
               icon: const Icon(Icons.edit_rounded, color: Colors.white, size: 28),
               label: 'NOTES',
@@ -1435,6 +1469,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         ),
         Expanded(
           child: _tool(
+            k: k,
             color: const Color(0xFFFF9F43),
             icon: const GameIcon(GameIcons.wand, size: 32),
             label: 'MAGIC',
@@ -1446,6 +1481,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           child: KeyedSubtree(
             key: _hintKey,
             child: _tool(
+              k: k,
               color: const Color(0xFF3FB26B),
               icon: const GameIcon(GameIcons.hint, size: 32),
               label: 'HINT',
@@ -1458,7 +1494,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _tool({required Color color, required Widget icon, required String label, required VoidCallback onTap, Widget? badge}) {
+  Widget _tool({required Color color, required Widget icon, required String label, required VoidCallback onTap, Widget? badge, double k = 1}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 3),
       child: Stack(
@@ -1466,20 +1502,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         children: [
           ChunkyButton(
             color: color,
-            height: 62,
+            height: 62 * k,
             radius: 16,
             depth: 5,
             onTap: onTap,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                icon,
-                const SizedBox(height: 1),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: OutlinedText(label, size: 13, stroke: Color.lerp(color, Colors.black, 0.45)!, strokeWidth: 3),
-                ),
-              ],
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  icon,
+                  const SizedBox(height: 1),
+                  OutlinedText(label, size: 13, stroke: Color.lerp(color, Colors.black, 0.45)!, strokeWidth: 3),
+                ],
+              ),
             ),
           ),
           if (badge != null) Positioned(top: -8, right: -4, child: IgnorePointer(child: badge)),

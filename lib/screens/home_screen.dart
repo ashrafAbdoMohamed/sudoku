@@ -234,26 +234,29 @@ class _HomeScreenState extends State<HomeScreen> {
               builder: (context, _) => Column(
                 children: [
                   Expanded(
-                    child: LayoutBuilder(
-                      // Scrolls only on screens too short to fit everything.
-                      builder: (context, constraints) => SingleChildScrollView(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                          child: IntrinsicHeight(
-                            child: Padding(
+                    // Everything always fits (no hidden scrolling): on short
+                    // screens, or once the banner takes its space, the rank
+                    // badge shrinks so the buttons and cards stay fully visible.
+                    child: Padding(
                               padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
                               child: Column(
                                 children: [
                                   Entrance(from: const Offset(0.6, 0), child: _topBar()),
                                   const SizedBox(height: 18),
-                                  Entrance(
-                                    delay: const Duration(milliseconds: 300),
-                                    from: Offset.zero,
-                                    curve: Curves.elasticOut,
-                                    duration: const Duration(milliseconds: 900),
-                                    child: RankBadge(store: store, onStats: _showStatistics, onAwards: _showAchievements),
+                                  Expanded(
+                                    child: Center(
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Entrance(
+                                          delay: const Duration(milliseconds: 300),
+                                          from: Offset.zero,
+                                          curve: Curves.elasticOut,
+                                          duration: const Duration(milliseconds: 900),
+                                          child: RankBadge(store: store, onStats: _showStatistics, onAwards: _showAchievements),
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                  const Spacer(),
                                   const SizedBox(height: 16),
                                   Entrance(
                                     delay: const Duration(milliseconds: 450),
@@ -280,10 +283,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                 ],
                               ),
-                            ),
-                          ),
-                        ),
-                      ),
                     ),
                   ),
                   // Banner ad (keyed so it reloads once the ads SDK has started)

@@ -95,6 +95,8 @@ class _ChallengeModalState extends State<ChallengeModal> {
     }
   }
 
+  bool _launched = false;
+
   void _startListeningToRoom() {
     _roomSubscription?.cancel();
     _roomSubscription = _onlineService.roomStateStream.listen((room) {
@@ -107,8 +109,12 @@ class _ChallengeModalState extends State<ChallengeModal> {
         _onlineService.startGame();
       }
 
-      if (room != null && room.isPlaying) {
-        // Game started - close modal and start
+      if (room != null && room.isPlaying && !_launched) {
+        // Game started - close modal and start. Only once: the room keeps
+        // updating while the modal animates out, and a second pop would close
+        // the new game screen, whose dispose leaves the room ("Opponent left").
+        _launched = true;
+        _roomSubscription?.cancel();
         Navigator.pop(context);
         if (widget.onStartOnlineChallenge != null) {
           widget.onStartOnlineChallenge!(_cDiff, _seed, _pin, true);

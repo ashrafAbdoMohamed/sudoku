@@ -53,3 +53,6 @@ keys/
 
 # Firebase deploy cache
 .firebase/
+
+# Release bundles (uploaded to Play, not kept in git)
+/release/

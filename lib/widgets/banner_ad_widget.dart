@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../services/ad_service.dart';
 
-/// Anchored adaptive banner sized to the screen width.
+/// Anchored adaptive banner sized to the screen width, or the slim standard
+/// 320x50 strip ([standard]) where every pixel counts (the game board).
 /// Takes no space when ads aren't initialized or the ad fails to load.
 class BannerAdWidget extends StatefulWidget {
-  const BannerAdWidget({super.key});
+  const BannerAdWidget({super.key, this.standard = false});
+  final bool standard;
 
   @override
   State<BannerAdWidget> createState() => _BannerAdWidgetState();
@@ -29,7 +31,9 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
     if (!adService.isInitialized) return;
 
     final width = MediaQuery.of(context).size.width.truncate();
-    final size = await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(width) ?? AdSize.banner;
+    final size = widget.standard
+        ? AdSize.banner
+        : await AdSize.getCurrentOrientationAnchoredAdaptiveBannerAdSize(width) ?? AdSize.banner;
     if (!mounted || _bannerAd != null) return;
 
     _size = size;

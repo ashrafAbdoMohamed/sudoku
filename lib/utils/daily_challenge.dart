@@ -42,8 +42,11 @@ class DailyChallenge {
     final date = DateTime.tryParse(dateString);
     if (date == null) return 'medium';
 
-    // Use day of year for rotation
-    final dayOfYear = date.difference(DateTime(date.year, 1, 1)).inDays;
+    // Day of year in UTC: local dates made the count depend on the phone's
+    // timezone (daylight saving shifted it by one), so players got different
+    // daily difficulties - and puzzles - on the same day.
+    final day = DateTime.utc(date.year, date.month, date.day);
+    final dayOfYear = day.difference(DateTime.utc(date.year, 1, 1)).inDays;
     return difficulties[dayOfYear % difficulties.length];
   }
 
