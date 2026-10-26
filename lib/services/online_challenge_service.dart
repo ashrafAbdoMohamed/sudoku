@@ -222,11 +222,13 @@ class OnlineChallengeService {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     try {
-      // Get current players
-      final snapshot = await roomRef.child('players').get();
+      // Read the whole room: on iOS a child get() while the room is being
+      // listened to can return the room itself, which wrote every room field
+      // (createdAt, seed...) in as a fake player.
+      final snapshot = await roomRef.get();
       if (!snapshot.exists) return;
 
-      final players = snapshot.value as Map<dynamic, dynamic>;
+      final players = OnlineRoom.fromMap(_currentRoomPin!, snapshot.value as Map<dynamic, dynamic>).players;
       final updates = <String, dynamic>{
         'status': 'playing',
         'startedAt': now,

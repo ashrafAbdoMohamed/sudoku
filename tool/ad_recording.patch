@@ -1,0 +1,80 @@
+diff --git a/lib/screens/game_screen.dart b/lib/screens/game_screen.dart
+index b2d2ce9..a6050f9 100644
+--- a/lib/screens/game_screen.dart
++++ b/lib/screens/game_screen.dart
+@@ -139,6 +139,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
+     _startTimer();
+     game.addListener(_onGameChange);
+     _focusNode.requestFocus();
++    _startDemo(); // TEMP: ad video recording
+ 
+     // Setup selection animation
+     _selectionController = AnimationController(
+@@ -650,6 +651,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
+ 
+   @override
+   void dispose() {
++    _demo?.cancel();
+     _timer?.cancel();
+     _focusNode.dispose();
+     _selectionController.dispose();
+@@ -838,6 +840,47 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
+     AnalyticsService().logHintUsed(source: 'magic');
+   }
+ 
++  // TEMP: ad video recording. --dart-define=DEMO_MS=<ms per move> plays the
++  // board by itself at a human-ish pace, starting DEMO_WAIT ms after load.
++  static const _demoMs = int.fromEnvironment('DEMO_MS');
++  static const _demoWait = int.fromEnvironment('DEMO_WAIT', defaultValue: 3000);
++  Timer? _demo;
++  final _demoRng = Random(11);
++  void _startDemo() {
++    if (_demoMs == 0) return;
++    var waited = 0;
++    void tick() {
++      if (!mounted) return;
++      var delay = _demoMs;
++      if (game.isGenerating || game.board.isEmpty || game.gameOver || game.paused) {
++        waited = 0;
++        delay = 200;
++      } else if (waited < _demoWait) {
++        waited += 200;
++        delay = 200;
++      } else {
++        final open = <(int, int)>[
++          for (var r = 0; r < 9; r++)
++            for (var c = 0; c < 9; c++)
++              if (game.board[r][c] == 0) (r, c),
++        ];
++        if (open.isNotEmpty) {
++          // Prefer the cell nearest the last one, so it reads like a person.
++          final sel = game.hasSelection ? (game.selectedRow!, game.selectedCol!) : (4, 4);
++          open.sort((a, b) => ((a.$1 - sel.$1).abs() + (a.$2 - sel.$2).abs()).compareTo((b.$1 - sel.$1).abs() + (b.$2 - sel.$2).abs()));
++          final (r, c) = open[_demoRng.nextInt(min(3, open.length))];
++          game.selectCell(r, c);
++          _selectionController.forward(from: 0);
++          _sound.playInput();
++          game.inputNumber(game.solution[r][c]);
++          delay = (_demoMs * (.7 + _demoRng.nextDouble() * .6)).round();
++        }
++      }
++      _demo = Timer(Duration(milliseconds: delay), tick);
++    }
++    _demo = Timer(const Duration(milliseconds: 200), tick);
++  }
++
+   /// Debug builds only: fills every open cell but one, to test the ending.
+   void _debugAlmostSolve() {
+     if (game.gameOver || game.isGenerating) return;
+diff --git a/lib/services/ad_service.dart b/lib/services/ad_service.dart
+index 7e705ae..bb12bda 100644
+--- a/lib/services/ad_service.dart
++++ b/lib/services/ad_service.dart
+@@ -79,6 +79,7 @@ class AdService {
+   Future<void> initialize({required bool personalized}) async {
+     _personalized = personalized;
+     if (_initialized) return;
++    if (const bool.fromEnvironment('NO_ADS')) return; // TEMP: ad video recording
+ 
+     try {
+       await MobileAds.instance.initialize();

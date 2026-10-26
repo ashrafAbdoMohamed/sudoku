@@ -25,7 +25,10 @@ class OnlineRoom {
     final playersData = data['players'] as Map<dynamic, dynamic>? ?? {};
     final players = <String, PlayerState>{};
     playersData.forEach((key, value) {
-      players[key.toString()] = PlayerState.fromMap(value as Map<dynamic, dynamic>);
+      // Only real players (they always have a name); skips stray entries.
+      if (value is Map && value['name'] != null) {
+        players[key.toString()] = PlayerState.fromMap(value);
+      }
     });
 
     return OnlineRoom(
